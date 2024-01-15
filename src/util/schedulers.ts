@@ -1,6 +1,4 @@
-type Scheduler =
-  typeof requestAnimationFrame
-  | typeof onTickEnd;
+export type Scheduler = typeof requestAnimationFrame | typeof onTickEnd;
 
 export function debounce<F extends AnyToVoidFunction>(
   fn: F,
@@ -64,18 +62,6 @@ export function throttle<F extends AnyToVoidFunction>(
   };
 }
 
-export function fastRafWithFallback<F extends AnyToVoidFunction>(fn: F) {
-  return fastRaf(fn, true);
-}
-
-export function throttleWithRafFallback<F extends AnyToVoidFunction>(fn: F) {
-  return throttleWith(fastRafWithFallback, fn);
-}
-
-export function throttleWithRaf<F extends AnyToVoidFunction>(fn: F) {
-  return throttleWith(fastRaf, fn);
-}
-
 export function throttleWithTickEnd<F extends AnyToVoidFunction>(fn: F) {
   return throttleWith(onTickEnd, fn);
 }
@@ -118,7 +104,7 @@ export function rafPromise() {
   });
 }
 
-const FAST_RAF_TIMEOUT_FALLBACK_MS = 300;
+const FAST_RAF_TIMEOUT_FALLBACK_MS = 35; // < 30 FPS
 
 let fastRafCallbacks: Set<NoneToVoidFunction> | undefined;
 let fastRafFallbackCallbacks: Set<NoneToVoidFunction> | undefined;

@@ -1,15 +1,17 @@
 import React, {
-  memo, useCallback, useEffect, useLayoutEffect, useState,
+  memo, useEffect, useLayoutEffect, useState,
 } from '../../../lib/teact/teact';
-
 import { getActions, withGlobal } from '../../../global';
+
 import renderText from '../../../global/helpers/renderText';
 import buildClassName from '../../../util/buildClassName';
 import captureKeyboardListeners from '../../../util/captureKeyboardListeners';
+import resolveModalTransitionName from '../../../util/resolveModalTransitionName';
 import { ANIMATED_STICKERS_PATHS } from '../../ui/helpers/animatedAssets';
 
 import useFlag from '../../../hooks/useFlag';
 import useLang from '../../../hooks/useLang';
+import useLastCallback from '../../../hooks/useLastCallback';
 
 import AnimatedIconWithPreview from '../../ui/AnimatedIconWithPreview';
 import Button from '../../ui/Button';
@@ -69,14 +71,14 @@ function SignatureModal({
       : undefined
   ), [closeModal, currentSlide]);
 
-  const handleConfirm = useCallback(() => {
+  const handleConfirm = useLastCallback(() => {
     setCurrentSlide(SLIDES.password);
     setNextKey(SLIDES.complete);
-  }, []);
+  });
 
-  const handlePasswordSubmit = useCallback((password: string) => {
+  const handlePasswordSubmit = useLastCallback((password: string) => {
     submitSignature({ password });
-  }, [submitSignature]);
+  });
 
   function renderConfirm() {
     return (
@@ -92,8 +94,8 @@ function SignatureModal({
             {renderText(lang('$signature_warning'))}
           </div>
           <div className={modalStyles.buttons}>
-            <Button onClick={closeModal}>{lang('Cancel')}</Button>
-            <Button isPrimary onClick={handleConfirm}>{lang('Sign')}</Button>
+            <Button className={modalStyles.button} onClick={closeModal}>{lang('Cancel')}</Button>
+            <Button isPrimary className={modalStyles.button} onClick={handleConfirm}>{lang('Sign')}</Button>
           </div>
         </div>
       </>
@@ -111,7 +113,7 @@ function SignatureModal({
           submitLabel={lang('Sign')}
           onUpdate={clearSignatureError}
           onSubmit={handlePasswordSubmit}
-          cancelLabel="Cancel"
+          cancelLabel={lang('Cancel')}
           onCancel={closeModal}
         />
       </>
@@ -159,15 +161,14 @@ function SignatureModal({
 
   return (
     <Modal
-      isSlideUp
       hasCloseButton
       isOpen={isModalOpen}
+      dialogClassName={styles.modalDialog}
       onClose={closeModal}
       onCloseAnimationEnd={cancelSignature}
-      dialogClassName={styles.modalDialog}
     >
       <Transition
-        name="pushSlide"
+        name={resolveModalTransitionName()}
         className={buildClassName(modalStyles.transition, 'custom-scroll')}
         slideClassName={modalStyles.transitionSlide}
         activeKey={currentSlide}

@@ -1,67 +1,49 @@
-import type { Storage } from '../storages/types';
-import type { ApiNetwork, OnApiUpdate } from '../types';
+import * as tonWebMnemonic from 'tonweb-mnemonic';
+
+import type { ApiNetwork } from '../types';
 
 import { parseAccountId } from '../../util/account';
 import blockchains from '../blockchains';
 import {
   fetchStoredAddress,
-  fetchStoredPublicKey,
   getMainAccountId,
 } from '../common/accounts';
 import * as dappPromises from '../common/dappPromises';
 import { resolveBlockchainKey } from '../common/helpers';
 
-let onUpdate: OnApiUpdate;
-let storage: Storage;
-
 const ton = blockchains.ton;
-
-export async function initWallet(_onUpdate: OnApiUpdate, _storage: Storage) {
-  onUpdate = _onUpdate;
-  storage = _storage;
-
-  const isTonProxyEnabled = await storage.getItem('isTonProxyEnabled');
-  onUpdate({
-    type: 'updateTonProxyState',
-    isEnabled: Boolean(isTonProxyEnabled),
-  });
-
-  const isTonMagicEnabled = await storage.getItem('isTonMagicEnabled');
-  onUpdate({
-    type: 'updateTonMagicState',
-    isEnabled: Boolean(isTonMagicEnabled),
-  });
-
-  const isDeeplinkHookEnabled = await storage.getItem('isDeeplinkHookEnabled');
-  onUpdate({
-    type: 'updateDeeplinkHookState',
-    isEnabled: Boolean(isDeeplinkHookEnabled),
-  });
-}
 
 export function getMnemonic(accountId: string, password: string) {
   const blockchain = blockchains[resolveBlockchainKey(accountId)!];
 
-  return blockchain.fetchMnemonic(storage, accountId, password);
+  return blockchain.fetchMnemonic(accountId, password);
+}
+
+export function getMnemonicWordList() {
+  return tonWebMnemonic.wordlists.default;
 }
 
 export async function verifyPassword(password: string) {
-  const accountId = await getMainAccountId(storage);
+  const accountId = await getMainAccountId();
   if (!accountId) {
     throw new Error('The user is not authorized in the wallet');
   }
 
   const blockchain = blockchains[resolveBlockchainKey(accountId)!];
 
-  return blockchain.verifyPassword(storage, accountId, password);
+  return blockchain.verifyPassword(accountId, password);
 }
 
 export function confirmDappRequest(promiseId: string, data: any) {
   dappPromises.resolveDappPromise(promiseId, data);
 }
 
-export function confirmDappRequestConnect(promiseId: string, password?: string, additionalAccountIds?: string[]) {
-  dappPromises.resolveDappPromise(promiseId, { additionalAccountIds, password });
+export function confirmDappRequestConnect(promiseId: string, data: {
+  password?: string;
+  accountId?: string;
+  signature?: string;
+}) {
+  dappPromises.resolveDappPromise(promiseId, data);
 }
 
 export function cancelDappRequest(promiseId: string, reason?: string) {
@@ -70,20 +52,22 @@ export function cancelDappRequest(promiseId: string, reason?: string) {
 
 export async function getWalletSeqno(accountId: string) {
   const { network } = parseAccountId(accountId);
-  const address = await fetchStoredAddress(storage, accountId);
+  const address = await fetchStoredAddress(accountId);
   return ton.getWalletSeqno(network, address);
 }
 
 export function fetchAddress(accountId: string) {
-  return fetchStoredAddress(storage, accountId);
-}
-
-export function fetchPublicKey(accountId: string) {
-  return fetchStoredPublicKey(storage, accountId);
+  return fetchStoredAddress(accountId);
 }
 
 export function isWalletInitialized(network: ApiNetwork, address: string) {
   const blockchain = blockchains.ton;
 
-  return blockchain.isWalletInitialized(network, address);
+  return blockchain.isAddressInitialized(network, address);
+}
+
+export function getWalletBalance(network: ApiNetwork, address: string) {
+  const blockchain = blockchains.ton;
+
+  return blockchain.getWalletBalance(network, address);
 }

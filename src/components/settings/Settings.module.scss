@@ -5,23 +5,30 @@
 }
 
 .slide {
-  overflow-y: scroll;
   display: flex;
   flex-direction: column;
 
+  width: 100%;
   height: 100%;
+  min-height: 0;
   max-height: 100%;
+  margin: 0 auto;
+
+  @include respond-below(xs) {
+    max-width: 27rem;
+  }
 }
 
 .transitionContainer {
-  max-width: 25rem;
-  margin: 0 auto;
-
   background-color: var(--color-background-second);
 }
 
-.transitionSlide {
-  padding-bottom: 1rem;
+@supports (padding-top: env(safe-area-inset-top)) {
+  html:global(:not(.is-native-bottom-sheet)) {
+    .transitionSlide {
+      padding-top: env(safe-area-inset-top);
+    }
+  }
 }
 
 .developerTitle {
@@ -42,20 +49,37 @@
   grid-template-columns: 1fr max-content 1fr;
   align-items: center;
 
-  margin-bottom: 2.25rem;
-  padding: 1.5rem 0.5rem 0;
+  padding: 1.5rem 0.125rem 1.375rem;
 
   font-size: 1.0625rem;
   font-weight: 700;
   line-height: 1.0625rem;
+
+  @include respond-below(xs) {
+    // Fix for opera, dead zone of 37 pixels in extension window on windows
+    :global(html.is-windows.is-opera.is-extension) & {
+      padding-top: 2.3125rem;
+    }
+  }
+
+  :global(html.with-safe-area-top) & {
+    padding-top: 0.75rem;
+  }
+}
+
+.languageHeader {
+  grid-template-columns: 0.85fr 1fr 0.85fr;
 }
 
 .headerBack {
-  cursor: pointer;
+  cursor: var(--custom-cursor, pointer);
 
   display: flex;
   align-items: center;
 
+  padding: 0.0625rem 0.375rem;
+
+  font-size: 1.0625rem;
   color: var(--color-blue);
 }
 
@@ -63,22 +87,51 @@
   font-size: 1.5rem;
 }
 
+.headerBackInContent {
+  position: absolute;
+  top: 1.125rem;
+  left: 0.125rem;
+}
+
 .headerTitle {
   display: flex;
   justify-content: center;
 
+  padding: 0 0.5rem;
+
   color: var(--color-black)
 }
 
+.modalHeader {
+  min-height: 4rem;
+}
+
 .content {
+  overflow-x: hidden;
+  overflow-y: scroll;
   display: flex;
   flex-direction: column;
 
   height: 100%;
-  padding: 0 1rem 1rem;
+  min-height: 0;
+  padding: 0.75rem 1rem 1rem;
 
-  @include adapt-padding-to-scrollbar(1rem); /* stylelint-disable-line order/order */
+  @include adapt-padding-to-scrollbar(1rem);
 
+  &_noScroll {
+    overflow: visible;
+  }
+
+  @supports (padding-bottom: max(env(safe-area-inset-bottom), 1rem)) {
+    padding-bottom: max(env(safe-area-inset-bottom), 1rem);
+  }
+}
+
+.contentFullSize {
+  overflow: visible;
+  align-items: center;
+
+  padding: 0 !important;
 }
 
 .blockTitle {
@@ -110,10 +163,17 @@
 
   background: var(--color-background-first);
   border-radius: var(--border-radius-default);
+
+  &:global(.custom-scroll) {
+    overflow-x: hidden;
+    overflow-y: scroll;
+
+    @include adapt-padding-to-scrollbar(1rem);
+  }
 }
 
 .theme {
-  cursor: pointer;
+  cursor: var(--custom-cursor, pointer);
 
   display: flex;
   flex-direction: column;
@@ -126,14 +186,14 @@
   color: var(--color-black);
 
   &_active {
+    pointer-events: none;
+
     font-weight: 700;
     color: var(--color-blue);
   }
 }
 
 .themeIcon {
-  position: relative;
-
   &::after {
     content: '';
 
@@ -180,6 +240,10 @@
 
   background: var(--color-background-first);
   border-radius: var(--border-radius-default);
+
+  &:last-child {
+    margin-bottom: 0;
+  }
 }
 
 .iconChevronRight {
@@ -187,7 +251,7 @@
 }
 
 .item {
-  cursor: pointer;
+  cursor: var(--custom-cursor, pointer);
 
   position: relative;
 
@@ -208,10 +272,6 @@
 
   transition: background-color 200ms;
 
-  &_red {
-    color: var(--color-red);
-  }
-
   &:not(:first-child):before {
     content: '';
 
@@ -223,6 +283,10 @@
     height: 0.0625rem;
     /* stylelint-disable-next-line plugin/whole-pixel */
     box-shadow: inset 0 -0.025rem 0 0 var(--color-separator);
+  }
+
+  &_red {
+    color: var(--color-red);
   }
 
   &_small {
@@ -267,9 +331,21 @@
     }
   }
 
-  &:focus,
-  &:hover {
-    background-color: var(--color-interactive-item-hover);
+  &_token {
+    padding: 0.875rem 1rem;
+  }
+
+  @media (hover: hover) {
+    &:focus,
+    &:hover {
+      background-color: var(--color-interactive-item-hover);
+    }
+  }
+
+  @media (pointer: coarse) {
+    &:active {
+      background-color: var(--color-interactive-item-hover);
+    }
   }
 
   &:active {
@@ -297,13 +373,14 @@
   align-items: center;
 
   color: var(--color-gray-3);
+  white-space: nowrap;
 }
 
 .version {
   user-select: none;
 
   margin-top: auto;
-  margin-bottom: 0.375rem;
+  margin-bottom: 0.25rem;
   padding-top: 1.5rem;
 
   font-size: 0.9375rem;
@@ -311,15 +388,9 @@
   color: var(--color-gray-2);
   text-align: center;
 
-  :global(.is-ios) & {
-    cursor: pointer;
+  :global(html.is-ios) & {
+    cursor: var(--custom-cursor, pointer);
   }
-}
-
-.languageInfo {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
 }
 
 .languageMain {
@@ -348,9 +419,6 @@
 }
 
 .tooltip {
-  bottom: 0;
-  transform: translate(calc(-50% + 0.875rem), -1.125rem);
-
   min-width: 14rem;
   max-width: 16rem;
 
@@ -372,10 +440,14 @@
 
   background: var(--color-background-first);
   border-radius: var(--border-radius-default);
+
+  &:focus,
+  &:hover {
+    background-color: var(--color-interactive-item-hover);
+  }
 }
 
 .blockDescription {
-  height: 1.875rem;
   margin: 0.5rem 0 2rem;
   padding: 0 1rem;
 
@@ -405,21 +477,17 @@
   color: var(--color-black);
 }
 
-.dapp {
-  position: relative;
+.dapp:not(:last-of-type)::after {
+  content: '';
 
-  &:not(:last-of-type)::after {
-    content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 3.875rem;
 
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    left: 3.875rem;
-
-    height: 0.0625rem;
-    /* stylelint-disable-next-line plugin/whole-pixel */
-    box-shadow: inset 0 -0.025rem 0 0 var(--color-separator);
-  }
+  height: 0.0625rem;
+  /* stylelint-disable-next-line plugin/whole-pixel */
+  box-shadow: inset 0 -0.025rem 0 0 var(--color-separator);
 }
 
 .backButton {
@@ -427,9 +495,15 @@
 }
 
 .logo {
+  flex-shrink: 0;
+
   width: 6rem;
   height: 6rem;
   margin: 0 auto 0.875rem;
+}
+
+.stickerNativeBiometric {
+  margin-top: auto;
 }
 
 .title {
@@ -504,10 +578,145 @@
   }
 }
 
+.tokenIcon {
+  width: 2.25rem;
+  height: 2.25rem;
+
+  border-radius: 100%;
+
+  @media (pointer: coarse) {
+    &:not(.tokenIconVisible) {
+     opacity: 0;
+    }
+  }
+}
+
+.tokenSortIcon {
+  cursor: var(--custom-cursor, pointer);
+
+  padding: 0 0.375rem;
+
+  font-size: 1.5rem;
+}
+
+.tokenTitle {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.tokenDescription {
+  display: flex;
+  align-items: center;
+
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-gray-2);
+}
+
+.dot,
+.dotLarge {
+  width: 0.125rem;
+  height: 0.125rem;
+  margin: 0 0.25rem;
+
+  font-style: normal;
+  line-height: 1rem;
+
+  background-color: var(--color-gray-2);
+  border-radius: 50%;
+}
+
+.dotLarge {
+  width: 0.1875rem;
+  height: 0.1875rem;
+}
+
+.dapp,
+.themeIcon,
+.contentRelative,
+.sortableContainer {
+  position: relative;
+}
+
 .modalDialog {
-  height: 32rem;
+  // Hidden is needed for animating screen transition on the desktop
+  overflow: hidden;
+
+  height: 46rem;
 
   @supports (height: env(safe-area-inset-bottom)) {
-    height: calc(32rem + env(safe-area-inset-bottom));
+    html:global(:not(.is-native-bottom-sheet)) {
+      height: calc(46rem + env(safe-area-inset-bottom));
+    }
   }
+}
+
+.modalDialogWeb {
+  height: 38rem;
+
+  @supports (height: env(safe-area-inset-bottom)) {
+    html:global(:not(.is-native-bottom-sheet)) {
+      height: calc(38rem + env(safe-area-inset-bottom));
+    }
+  }
+}
+
+.modalContent {
+  overflow: visible;
+
+  height: 100%;
+  min-height: 0;
+}
+
+.deleteText {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-blue);
+
+  &:hover {
+    opacity: 0.8;
+  }
+}
+
+.languageInfo,
+.tokenInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stickerAndTitle {
+  display: flex;
+  column-gap: 1rem;
+  align-items: center;
+
+  margin-bottom: 1.5rem;
+}
+
+.sideTitle {
+  font-size: 1.6875rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--color-black);
+}
+
+.aboutFooterWrapper {
+  display: flex;
+  flex-grow: 1;
+  align-items: flex-end;
+  justify-content: center;
+
+  margin-top: 1rem;
+}
+
+.aboutFooterContent {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-blue);
+  text-align: center;
 }

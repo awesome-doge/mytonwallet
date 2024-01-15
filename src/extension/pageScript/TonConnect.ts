@@ -9,12 +9,10 @@ import type {
   WalletEvent,
   WalletResponse,
 } from '@tonconnect/protocol';
-import {
-  CONNECT_EVENT_ERROR_CODES,
-} from '@tonconnect/protocol';
 
 import type { Connector } from '../../util/PostMessageConnector';
-import packageJson from '../../../package.json';
+
+import { TONCONNECT_VERSION, tonConnectGetDeviceInfo } from '../../util/tonConnectEnvironment';
 
 declare global {
   interface Window {
@@ -22,6 +20,18 @@ declare global {
       tonconnect: TonConnect;
     };
   }
+}
+
+// This is imported from @tonconnect/protocol library
+// eslint-disable-next-line @typescript-eslint/naming-convention
+enum CONNECT_EVENT_ERROR_CODES {
+  UNKNOWN_ERROR = 0,
+  BAD_REQUEST_ERROR = 1,
+  MANIFEST_NOT_FOUND_ERROR = 2,
+  MANIFEST_CONTENT_ERROR = 3,
+  UNKNOWN_APP_ERROR = 100,
+  USER_REJECTS_ERROR = 300,
+  METHOD_NOT_SUPPORTED = 400,
 }
 
 type TonConnectCallback = (event: WalletEvent) => void;
@@ -42,52 +52,8 @@ interface TonConnectBridge {
   listen(callback: TonConnectCallback): () => void;
 }
 
-type DevicePlatform = DeviceInfo['platform'];
-
-const TONCONNECT_VERSION = 2;
-
-function getDeviceInfo(): DeviceInfo {
-  return {
-    platform: getPlatform()!,
-    appName: 'MyTonWallet',
-    appVersion: packageJson.version,
-    maxProtocolVersion: TONCONNECT_VERSION,
-    features: [
-      'SendTransaction', // TODO DEPRECATED
-      { name: 'SendTransaction', maxMessages: 4 },
-    ],
-  };
-}
-
-function getPlatform(): DevicePlatform {
-  const { userAgent, platform } = window.navigator;
-
-  const macosPlatforms = ['macOS', 'Macintosh', 'MacIntel', 'MacPPC', 'Mac68K'];
-  const windowsPlatforms = ['Win32', 'Win64', 'Windows', 'WinCE'];
-  const iphonePlatforms = ['iPhone'];
-  const ipadPlatforms = ['iPad', 'iPod'];
-
-  let os: DevicePlatform | undefined;
-
-  if (macosPlatforms.indexOf(platform) !== -1) {
-    os = 'mac';
-  } else if (iphonePlatforms.indexOf(platform) !== -1) {
-    os = 'iphone';
-  } else if (ipadPlatforms.indexOf(platform) !== -1) {
-    os = 'ipad';
-  } else if (windowsPlatforms.indexOf(platform) !== -1) {
-    os = 'windows';
-  } else if (/Android/.test(userAgent)) {
-    os = 'linux';
-  } else if (/Linux/.test(platform)) {
-    os = 'linux';
-  }
-
-  return os!;
-}
-
 class TonConnect implements TonConnectBridge {
-  deviceInfo: DeviceInfo = getDeviceInfo();
+  deviceInfo: DeviceInfo = tonConnectGetDeviceInfo();
 
   protocolVersion = TONCONNECT_VERSION;
 
@@ -114,7 +80,7 @@ class TonConnect implements TonConnectBridge {
 
     const response = await this.request('connect', [message, id]);
     if (response?.event === 'connect') {
-      response.payload.device = getDeviceInfo();
+      response.payload.device = tonConnectGetDeviceInfo();
 
       this.addEventListeners();
     }
@@ -127,7 +93,7 @@ class TonConnect implements TonConnectBridge {
 
     const response = await this.request('reconnect', [id]);
     if (response?.event === 'connect') {
-      response.payload.device = getDeviceInfo();
+      response.payload.device = tonConnectGetDeviceInfo();
 
       this.addEventListeners();
     }
@@ -146,7 +112,7 @@ class TonConnect implements TonConnectBridge {
     return response || {
       error: {
         code: 0,
-        message: 'Unknown error',
+        message: 'Unknown error.',
       },
       id,
     };
@@ -177,7 +143,7 @@ class TonConnect implements TonConnectBridge {
 
   private static buildConnectError(
     id: number,
-    msg = 'Unknown error',
+    msg = 'Unknown error.',
     code?: CONNECT_EVENT_ERROR_CODES,
   ): ConnectEventError {
     return {

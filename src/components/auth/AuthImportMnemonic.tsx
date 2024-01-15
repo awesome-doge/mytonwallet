@@ -1,16 +1,19 @@
 import React, {
-  memo, useCallback, useEffect, useMemo, useState,
+  memo, useEffect, useMemo, useState,
 } from '../../lib/teact/teact';
+import { getActions, withGlobal } from '../../global';
 
 import { ANIMATED_STICKER_SMALL_SIZE_PX, MNEMONIC_COUNT } from '../../config';
-import { getActions, withGlobal } from '../../global';
 import renderText from '../../global/helpers/renderText';
 import buildClassName from '../../util/buildClassName';
 import captureKeyboardListeners from '../../util/captureKeyboardListeners';
 import { ANIMATED_STICKERS_PATHS } from '../ui/helpers/animatedAssets';
 
 import useClipboardPaste from '../../hooks/useClipboardPaste';
+import { useDeviceScreen } from '../../hooks/useDeviceScreen';
+import useHistoryBack from '../../hooks/useHistoryBack';
 import useLang from '../../hooks/useLang';
+import useLastCallback from '../../hooks/useLastCallback';
 
 import InputMnemonic from '../common/InputMnemonic';
 import AnimatedIconWithPreview from '../ui/AnimatedIconWithPreview';
@@ -42,19 +45,9 @@ const AuthImportMnemonic = ({ isActive, isLoading, error }: OwnProps & StateProp
 
   const lang = useLang();
   const [mnemonic, setMnemonic] = useState<Record<number, string>>({});
+  const { isPortrait } = useDeviceScreen();
 
-  const handlePasteMnemonic = useCallback((pastedText: string) => {
-    const pastedMnemonic = parsePastedText(pastedText);
-
-    if (pastedMnemonic.length === 1 && document.activeElement?.id.startsWith('import-mnemonic-')) {
-      (document.activeElement as HTMLInputElement).value = pastedMnemonic[0];
-
-      const event = new Event('input');
-      (document.activeElement as HTMLInputElement).dispatchEvent(event);
-
-      return;
-    }
-
+  const handleMnemonicSet = useLastCallback((pastedMnemonic: string[]) => {
     if (pastedMnemonic.length !== MNEMONIC_COUNT) {
       return;
     }
@@ -67,7 +60,22 @@ const AuthImportMnemonic = ({ isActive, isLoading, error }: OwnProps & StateProp
     if (document.activeElement?.id.startsWith('import-mnemonic-')) {
       (document.activeElement as HTMLInputElement).blur();
     }
-  }, []);
+  });
+
+  const handlePasteMnemonic = useLastCallback((pastedText: string) => {
+    const pastedMnemonic = parsePastedText(pastedText);
+
+    if (pastedMnemonic.length === 1 && document.activeElement?.id.startsWith('import-mnemonic-')) {
+      (document.activeElement as HTMLInputElement).value = pastedMnemonic[0];
+
+      const event = new Event('input');
+      (document.activeElement as HTMLInputElement).dispatchEvent(event);
+
+      return;
+    }
+
+    handleMnemonicSet(pastedMnemonic);
+  });
 
   useClipboardPaste(Boolean(isActive), handlePasteMnemonic);
 
@@ -77,24 +85,35 @@ const AuthImportMnemonic = ({ isActive, isLoading, error }: OwnProps & StateProp
     return mnemonicValues.length !== MNEMONIC_COUNT || mnemonicValues.some((word) => !word);
   }, [mnemonic]);
 
-  const handleSetWord = useCallback((value: string, index: number) => {
+  const handleSetWord = useLastCallback((value: string, index: number) => {
+    const pastedMnemonic = parsePastedText(value);
+    if (pastedMnemonic.length === MNEMONIC_COUNT) {
+      handleMnemonicSet(pastedMnemonic);
+      return;
+    }
+
     setMnemonic({
       ...mnemonic,
       [index]: value?.toLowerCase(),
     });
-  }, [mnemonic]);
+  });
 
-  const handleCancel = useCallback(() => {
+  const handleCancel = useLastCallback(() => {
     setTimeout(() => {
       restartAuth();
     }, SLIDE_ANIMATION_DURATION_MS);
-  }, [restartAuth]);
+  });
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useLastCallback(() => {
     if (!isSubmitDisabled) {
       afterImportMnemonic({ mnemonic: Object.values(mnemonic) });
     }
-  }, [afterImportMnemonic, isSubmitDisabled, mnemonic]);
+  });
+
+  useHistoryBack({
+    isActive,
+    onBack: handleCancel,
+  });
 
   useEffect(() => {
     return isSubmitDisabled
@@ -118,7 +137,7 @@ const AuthImportMnemonic = ({ isActive, isLoading, error }: OwnProps & StateProp
       <div className={buildClassName(styles.title, styles.title_afterSmallSticker)}>
         {lang('%1$d Secret Words', MNEMONIC_COUNT)}
       </div>
-      <div className={buildClassName(styles.info, styles.info_pull)}>
+      <div className={buildClassName(styles.info, styles.infoSmallFont, styles.infoPull)}>
         {renderText(lang('$auth_import_mnemonic_description', MNEMONIC_COUNT))}
       </div>
 
@@ -130,7 +149,7 @@ const AuthImportMnemonic = ({ isActive, isLoading, error }: OwnProps & StateProp
             nextId={id + 1 < MNEMONIC_COUNT ? `import-mnemonic-${id + 1}` : undefined}
             labelText={label}
             value={mnemonic[id]}
-            suggestionsPosition={(id > 7 && id < 12) || id > 19 ? 'top' : undefined}
+            suggestionsPosition={getSuggestPosition(id, isPortrait)}
             inputArg={id}
             onInput={handleSetWord}
           />
@@ -167,4 +186,12 @@ export default memo(withGlobal<OwnProps>((global): StateProps => {
 
 function parsePastedText(str: string) {
   return str.replace(/(?:\r\n)+|[\r\n\s;,\t]+/g, ' ').trim().split(' ');
+}
+
+function getSuggestPosition(id: number, isPortrait: boolean = false) {
+  if (isPortrait) {
+    return 'top';
+  }
+
+  return ((id > 5 && id < 8) || (id > 13 && id < 16) || id > 21) ? 'top' : undefined;
 }

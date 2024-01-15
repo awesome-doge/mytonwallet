@@ -1,23 +1,29 @@
-import type { Jetton, JettonBalance } from 'tonapi-sdk-js';
+import type { JettonBalance } from 'tonapi-sdk-js';
 import TonWeb from 'tonweb';
 
-import type { Storage } from '../../storages/types';
 import type {
   ApiBaseToken, ApiNetwork, ApiToken, ApiTokenSimple,
 } from '../../types';
-import type { ApiTransactionExtra, JettonMetadata } from './types';
+import type { AnyPayload, ApiTransactionExtra, JettonMetadata } from './types';
 
+import { DEFAULT_DECIMAL_PLACES, TON_SYMBOL, TON_TOKEN_SLUG } from '../../../config';
 import { parseAccountId } from '../../../util/account';
 import { logDebugError } from '../../../util/logs';
-import withCache from '../../../util/withCache';
+import { fixIpfsUrl } from '../../../util/metadata';
+import { buildTokenSlug } from './util';
 import {
+  fetchJettonMetadata,
   fixBase64ImageData,
-  fixIpfsUrl,
-  getJettonMetadata,
   parseJettonWalletMsgBody,
 } from './util/metadata';
 import { fetchJettonBalances } from './util/tonapiio';
-import { buildTokenTransferBody, getTonWeb, toBase64Address } from './util/tonweb';
+import {
+  buildTokenTransferBody,
+  getTonWeb,
+  resolveTokenMinterAddress,
+  resolveTokenWalletAddress,
+  toBase64Address,
+} from './util/tonweb';
 import { fetchStoredAddress } from '../../common/accounts';
 import {
   DEFAULT_DECIMALS,
@@ -25,66 +31,53 @@ import {
   TOKEN_TRANSFER_TON_FORWARD_AMOUNT,
 } from './constants';
 
-const { Address, toNano } = TonWeb.utils;
-const { JettonWallet, JettonMinter } = TonWeb.token.jetton;
+const { JettonWallet } = TonWeb.token.jetton;
 
 export type JettonWalletType = InstanceType<typeof JettonWallet>;
 export type TokenBalanceParsed = {
   slug: string;
   balance: string;
   token: ApiTokenSimple;
-} | undefined;
-
-interface ExtendedJetton extends Jetton {
-  image_data?: string;
-}
+  jettonWallet: string;
+};
 
 const KNOWN_TOKENS: ApiBaseToken[] = [
   {
-    slug: 'toncoin',
+    slug: TON_TOKEN_SLUG,
     name: 'Toncoin',
-    symbol: 'TON',
-    decimals: 9,
+    cmcSlug: TON_TOKEN_SLUG,
+    symbol: TON_SYMBOL,
+    decimals: DEFAULT_DECIMAL_PLACES,
   },
 ];
 
 const knownTokens = {} as Record<string, ApiToken>;
 addKnownTokens(KNOWN_TOKENS);
 
-export const resolveTokenWalletAddress = withCache(async (
-  network: ApiNetwork,
-  address: string,
-  minterAddress: string,
-) => {
-  const minter = new JettonMinter(getTonWeb(network).provider, { address: minterAddress } as any);
-  return (await minter.getJettonWalletAddress(new Address(address))).toString(true, true, true);
-});
-
-export const resolveTokenMinterAddress = withCache(async (network: ApiNetwork, tokenWalletAddress: string) => {
-  const tokenWallet = new JettonWallet(getTonWeb(network).provider, { address: tokenWalletAddress } as any);
-  return (await tokenWallet.getData()).jettonMinterAddress.toString(true, true, true);
-});
-
-export async function getAccountTokenBalances(storage: Storage, accountId: string) {
+export async function getAccountTokenBalances(accountId: string) {
   const { network } = parseAccountId(accountId);
-  const address = await fetchStoredAddress(storage, accountId);
+  const address = await fetchStoredAddress(accountId);
 
   const balancesRaw: Array<JettonBalance> = await fetchJettonBalances(network, address);
   return balancesRaw.map(parseTokenBalance).filter(Boolean);
 }
 
-function parseTokenBalance(balanceRaw: JettonBalance): TokenBalanceParsed {
-  if (!balanceRaw.metadata) {
+function parseTokenBalance(balanceRaw: JettonBalance): TokenBalanceParsed | undefined {
+  if (!balanceRaw.jetton) {
     return undefined;
   }
 
   try {
-    const { balance, jettonAddress, metadata } = balanceRaw;
-    const minterAddress = toBase64Address(jettonAddress);
+    const { balance, jetton, walletAddress } = balanceRaw;
+    const minterAddress = toBase64Address(jetton.address, true);
+    const token = buildTokenByMetadata(minterAddress, jetton);
 
-    const token = buildTokenByMetadata(minterAddress, metadata as ExtendedJetton);
-
-    return { slug: token.slug, balance, token };
+    return {
+      slug: token.slug,
+      balance,
+      token,
+      jettonWallet: toBase64Address(walletAddress.address),
+    };
   } catch (err) {
     logDebugError('parseTokenBalance', err);
     return undefined;
@@ -107,9 +100,9 @@ export function parseTokenTransaction(
   }
 
   const {
-    operation, jettonAmount, address, forwardComment,
+    operation, jettonAmount, address, comment, encryptedComment,
   } = parsedData;
-  const isIncoming = operation === 'internalTransfer';
+  const isIncoming = operation === 'InternalTransfer';
 
   return {
     ...tx,
@@ -117,7 +110,8 @@ export function parseTokenTransaction(
     fromAddress: isIncoming ? (address ?? tx.fromAddress) : walletAddress,
     toAddress: isIncoming ? walletAddress : address!,
     amount: isIncoming ? jettonAmount.toString() : `-${jettonAmount}`,
-    comment: forwardComment,
+    comment,
+    encryptedComment,
     isIncoming,
   };
 }
@@ -128,7 +122,7 @@ export async function buildTokenTransfer(
   fromAddress: string,
   toAddress: string,
   amount: string,
-  comment?: string,
+  payload?: AnyPayload,
 ) {
   const minterAddress = resolveTokenBySlug(slug).minterAddress!;
   const tokenWalletAddress = await resolveTokenWalletAddress(network, fromAddress, minterAddress);
@@ -139,33 +133,20 @@ export async function buildTokenTransfer(
 
   const tokenWallet = getTokenWallet(network, tokenWalletAddress);
 
-  const payload = buildTokenTransferBody({
+  payload = buildTokenTransferBody({
     tokenAmount: amount,
     toAddress,
-    forwardAmount: toNano(TOKEN_TRANSFER_TON_FORWARD_AMOUNT).toString(),
-    forwardPayload: comment,
+    forwardAmount: TOKEN_TRANSFER_TON_FORWARD_AMOUNT.toString(),
+    forwardPayload: payload,
     responseAddress: fromAddress,
   });
 
   return {
     tokenWallet,
-    amount: toNano(TOKEN_TRANSFER_TON_AMOUNT).toString(),
+    amount: TOKEN_TRANSFER_TON_AMOUNT.toString(),
     toAddress: tokenWalletAddress,
     payload,
   };
-}
-
-export async function buildTokenTransferRaw(
-  network: ApiNetwork,
-  slug: string,
-  fromAddress: string,
-  toAddress: string,
-  amount: string,
-  comment?: string,
-) {
-  const transferParams = await buildTokenTransfer(network, slug, fromAddress, toAddress, amount, comment);
-  const payload = Array.from(await transferParams.payload.toBoc());
-  return { ...transferParams, payload };
 }
 
 export function resolveTokenBySlug(slug: string) {
@@ -178,11 +159,6 @@ export function getTokenWallet(network: ApiNetwork, tokenAddress: string) {
 
 export async function getTokenWalletBalance(tokenWallet: JettonWalletType) {
   return (await tokenWallet.getData()).balance.toString();
-}
-
-export function buildTokenSlug(minterAddress: string) {
-  const addressPart = minterAddress.replace(/[^a-z\d]/gi, '').slice(0, 10);
-  return `ton-${addressPart}`.toLowerCase();
 }
 
 export function getKnownTokens() {
@@ -206,8 +182,8 @@ export function addKnownTokens(tokens: ApiBaseToken[]) {
   }
 }
 
-export async function importToken(network: ApiNetwork, address: string) {
-  const metadata = await getJettonMetadata(network, address);
+export async function fetchToken(network: ApiNetwork, address: string) {
+  const metadata = await fetchJettonMetadata(network, address);
 
   return buildTokenByMetadata(address, metadata);
 }

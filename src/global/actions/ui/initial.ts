@@ -1,50 +1,75 @@
-import { ApiTransactionDraftError, ApiTransactionError } from '../../../api/types';
-import type { NotificationType } from '../../types';
+import type { Account, AccountState, NotificationType } from '../../types';
+import { ApiCommonError, ApiTransactionDraftError, ApiTransactionError } from '../../../api/types';
 
-import { IS_ELECTRON } from '../../../config';
-import { genRelatedAccountIds } from '../../../util/account';
+import { IS_EXTENSION } from '../../../config';
+import { requestMutation } from '../../../lib/fasterdom/fasterdom';
+import { parseAccountId } from '../../../util/account';
 import { initializeSoundsForSafari } from '../../../util/appSounds';
 import { omit } from '../../../util/iteratees';
 import { clearPreviousLangpacks, setLanguage } from '../../../util/langProvider';
 import switchAnimationLevel from '../../../util/switchAnimationLevel';
-import switchTheme from '../../../util/switchTheme';
+import switchTheme, { setStatusBarStyle } from '../../../util/switchTheme';
 import {
-  IS_ANDROID, IS_EXTENSION,
-  IS_IOS, IS_LINUX, IS_MAC_OS, IS_SAFARI,
+  IS_ANDROID,
+  IS_DELEGATED_BOTTOM_SHEET,
+  IS_ELECTRON,
+  IS_IOS,
+  IS_LINUX,
+  IS_MAC_OS,
+  IS_OPERA,
+  IS_SAFARI,
   IS_WINDOWS,
+  setScrollbarWidthProperty,
 } from '../../../util/windowEnvironment';
 import { callApi } from '../../../api';
 import {
   addActionHandler, getActions, getGlobal, setGlobal,
 } from '../../index';
 import { updateCurrentAccountState } from '../../reducers';
-import { selectNetworkAccounts, selectNewestTxIds } from '../../selectors';
+import {
+  selectCurrentNetwork,
+  selectNetworkAccounts,
+  selectNetworkAccountsMemoized,
+  selectNewestTxIds,
+} from '../../selectors';
+
+import { callActionInMain } from '../../../hooks/useDelegatedBottomSheet';
 
 addActionHandler('init', (_, actions) => {
-  const { documentElement } = document;
+  requestMutation(() => {
+    const { documentElement } = document;
 
-  if (IS_IOS) {
-    documentElement.classList.add('is-ios');
-  } else if (IS_ANDROID) {
-    documentElement.classList.add('is-android');
-  } else if (IS_MAC_OS) {
-    documentElement.classList.add('is-macos');
-  } else if (IS_WINDOWS) {
-    documentElement.classList.add('is-windows');
-  } else if (IS_LINUX) {
-    documentElement.classList.add('is-linux');
-  }
-  if (IS_SAFARI) {
-    documentElement.classList.add('is-safari');
-  }
-  if (IS_EXTENSION) {
-    documentElement.classList.add('is-extension');
-  }
-  if (IS_ELECTRON) {
-    documentElement.classList.add('is-electron');
-  }
+    if (IS_IOS) {
+      documentElement.classList.add('is-ios');
+    } else if (IS_ANDROID) {
+      documentElement.classList.add('is-android');
+    } else if (IS_MAC_OS) {
+      documentElement.classList.add('is-macos');
+    } else if (IS_WINDOWS) {
+      documentElement.classList.add('is-windows');
+    } else if (IS_LINUX) {
+      documentElement.classList.add('is-linux');
+    }
+    if (IS_SAFARI) {
+      documentElement.classList.add('is-safari');
+    }
+    if (IS_OPERA) {
+      documentElement.classList.add('is-opera');
+    }
+    if (IS_EXTENSION) {
+      documentElement.classList.add('is-extension');
+    }
+    if (IS_ELECTRON) {
+      documentElement.classList.add('is-electron');
+    }
+    if (IS_DELEGATED_BOTTOM_SHEET) {
+      documentElement.classList.add('is-native-bottom-sheet');
+    }
 
-  actions.afterInit();
+    setScrollbarWidthProperty();
+
+    actions.afterInit();
+  });
 });
 
 addActionHandler('afterInit', (global) => {
@@ -52,6 +77,7 @@ addActionHandler('afterInit', (global) => {
 
   switchTheme(theme);
   switchAnimationLevel(animationLevel);
+  setStatusBarStyle();
   void setLanguage(langCode);
   clearPreviousLangpacks();
 
@@ -92,27 +118,7 @@ addActionHandler('selectToken', (global, actions, { slug } = {}) => {
   return updateCurrentAccountState(global, { currentTokenSlug: slug });
 });
 
-addActionHandler('showError', (global, actions, { error }) => {
-  switch (error) {
-    case ApiTransactionError.PartialTransactionFailure:
-      actions.showDialog({ message: 'Not all transactions were sent successfully' });
-      break;
-    case ApiTransactionError.IncorrectDeviceTime:
-      actions.showDialog({ message: 'The time on your device is incorrect, sync it and try again' });
-      break;
-    case ApiTransactionError.UnsuccesfulTransfer:
-      actions.showDialog({ message: 'Transfer was unsuccessful. Try again later' });
-      break;
-    case undefined:
-      actions.showDialog({ message: 'Unexpected' });
-      break;
-    default:
-      actions.showDialog({ message: error });
-      break;
-  }
-});
-
-addActionHandler('showTxDraftError', (global, actions, { error } = {}) => {
+addActionHandler('showError', (global, actions, { error } = {}) => {
   switch (error) {
     case ApiTransactionDraftError.InvalidAmount:
       actions.showDialog({ message: 'Invalid amount' });
@@ -130,13 +136,55 @@ addActionHandler('showTxDraftError', (global, actions, { error } = {}) => {
       actions.showDialog({ message: 'Domain is not connected to a wallet' });
       break;
 
+    case ApiTransactionDraftError.WalletNotInitialized:
+      actions.showDialog({
+        message: 'Encryption is not possible. The recipient is not a wallet or has no outgoing transactions.',
+      });
+      break;
+
+    case ApiTransactionDraftError.InvalidAddressFormat:
+      actions.showDialog({
+        message: 'Invalid address format. Only URL Safe Base64 format is allowed.',
+      });
+      break;
+
+    case ApiTransactionError.PartialTransactionFailure:
+      actions.showDialog({ message: 'Not all transactions were sent successfully' });
+      break;
+
+    case ApiTransactionError.IncorrectDeviceTime:
+      actions.showDialog({ message: 'The time on your device is incorrect, sync it and try again' });
+      break;
+
+    case ApiTransactionError.UnsuccesfulTransfer:
+      actions.showDialog({ message: 'Transfer was unsuccessful. Try again later' });
+      break;
+
+    case ApiTransactionError.UnsupportedHardwarePayload:
+      actions.showDialog({ message: 'The hardware wallet does not support this data format' });
+      break;
+
+    case ApiCommonError.ServerError:
+      actions.showDialog({ message: 'An error on the server side. Please try again.' });
+      break;
+
+    case ApiCommonError.Unexpected:
+    case undefined:
+      actions.showDialog({ message: 'Unexpected' });
+      break;
+
     default:
-      actions.showDialog({ message: 'Unexpected error' });
+      actions.showDialog({ message: error });
       break;
   }
 });
 
 addActionHandler('showNotification', (global, actions, payload) => {
+  if (IS_DELEGATED_BOTTOM_SHEET) {
+    callActionInMain('showNotification', payload);
+    return undefined;
+  }
+
   const { message, icon } = payload;
 
   const newNotifications: NotificationType[] = [...global.notifications];
@@ -189,7 +237,11 @@ addActionHandler('toggleTonMagic', (global, actions, { isEnabled }) => {
 });
 
 addActionHandler('toggleDeeplinkHook', (global, actions, { isEnabled }) => {
-  void callApi('doDeeplinkHook', isEnabled);
+  if (IS_ELECTRON) {
+    window.electron?.toggleDeeplinkHandler(isEnabled);
+  } else {
+    void callApi('doDeeplinkHook', isEnabled);
+  }
 
   return {
     ...global,
@@ -201,14 +253,58 @@ addActionHandler('toggleDeeplinkHook', (global, actions, { isEnabled }) => {
 });
 
 addActionHandler('signOut', async (global, actions, payload) => {
+  if (IS_DELEGATED_BOTTOM_SHEET) {
+    callActionInMain('signOut', payload);
+  }
+
   const { isFromAllAccounts } = payload || {};
+
+  const network = selectCurrentNetwork(global);
   const accountIds = Object.keys(selectNetworkAccounts(global)!);
 
-  if (isFromAllAccounts || accountIds.length === 1) {
-    await callApi('resetAccounts');
+  const otherNetwork = network === 'mainnet' ? 'testnet' : 'mainnet';
+  const otherNetworkAccountIds = Object.keys(selectNetworkAccountsMemoized(otherNetwork, global.accounts?.byId)!);
 
-    getActions().afterSignOut({ isFromAllAccounts: true });
-    getActions().init();
+  if (isFromAllAccounts || accountIds.length === 1) {
+    if (otherNetworkAccountIds.length) {
+      await callApi('removeNetworkAccounts', network);
+
+      global = getGlobal();
+
+      const nextAccountId = otherNetworkAccountIds[0];
+      const accountsById = Object.entries(global.accounts!.byId).reduce((byId, [accountId, account]) => {
+        if (parseAccountId(accountId).network !== network) {
+          byId[accountId] = account;
+        }
+        return byId;
+      }, {} as Record<string, Account>);
+      const byAccountId = Object.entries(global.byAccountId).reduce((byId, [accountId, state]) => {
+        if (parseAccountId(accountId).network !== network) {
+          byId[accountId] = state;
+        }
+        return byId;
+      }, {} as Record<string, AccountState>);
+
+      global = {
+        ...global,
+        currentAccountId: nextAccountId,
+        accounts: {
+          ...global.accounts!,
+          byId: accountsById,
+        },
+        byAccountId,
+      };
+
+      setGlobal(global);
+
+      getActions().switchAccount({ accountId: nextAccountId, newNetwork: otherNetwork });
+      getActions().afterSignOut();
+    } else {
+      await callApi('resetAccounts');
+
+      getActions().afterSignOut({ isFromAllAccounts: true });
+      getActions().init();
+    }
   } else {
     const prevAccountId = global.currentAccountId!;
     const nextAccountId = accountIds.find((id) => id !== prevAccountId)!;
@@ -218,9 +314,8 @@ addActionHandler('signOut', async (global, actions, payload) => {
 
     global = getGlobal();
 
-    const prevAccountIds = genRelatedAccountIds(prevAccountId!);
-    const accountsById = omit(global.accounts!.byId, prevAccountIds);
-    const byAccountId = omit(global.byAccountId, prevAccountIds);
+    const accountsById = omit(global.accounts!.byId, [prevAccountId]);
+    const byAccountId = omit(global.byAccountId, [prevAccountId]);
 
     global = {
       ...global,

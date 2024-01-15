@@ -1,7 +1,10 @@
 node_modules
 dist
 dist-electron
-MyTonWallet.zip
+MyTonWallet-chrome.zip
+MyTonWallet-firefox.zip
+MyTonWallet-firefox-sources.tgz
+MyTonWallet-opera.zip
 .cache
 .env*
 !.env.example
@@ -10,8 +13,14 @@ MyTonWallet.zip
 *.iml
 dev/perf/screenshot*
 .DS_store
+.DS_Store
 test-results
+public/statoscope-build-statistics.json
+public/statoscope-reference.json
+public/statoscope-report.html
+public/statoscope-master-reference.json
 trash/
 coverage/
 src/i18n/en.json
 notarization-error.log
+.patch-version

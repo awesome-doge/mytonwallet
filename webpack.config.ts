@@ -1,3 +1,6 @@
+import 'webpack-dev-server';
+
+import StatoscopeWebpackPlugin from '@statoscope/webpack-plugin';
 // @ts-ignore
 import PreloadWebpackPlugin from '@vue/preload-webpack-plugin';
 // @ts-ignore
@@ -10,27 +13,51 @@ import HtmlPlugin from 'html-webpack-plugin';
 import yaml from 'js-yaml';
 import MiniCssExtractPlugin from 'mini-css-extract-plugin';
 import path from 'path';
-import type { Configuration } from 'webpack';
+import type { Compiler, Configuration } from 'webpack';
 import {
-  DefinePlugin, EnvironmentPlugin, NormalModuleReplacementPlugin, ProvidePlugin,
+  DefinePlugin, EnvironmentPlugin, NormalModuleReplacementPlugin,
+  ProvidePlugin,
 } from 'webpack';
-import { BundleAnalyzerPlugin } from 'webpack-bundle-analyzer';
 
-import 'webpack-dev-server';
+import { PRODUCTION_URL } from './src/config';
 
-const {
-  APP_ENV, HEAD, ENV_EXTENSION, IS_ELECTRON,
-} = process.env;
+dotenv.config();
+
+// GitHub workflow uses an empty string as the default value if it's not in repository variables, so we cannot define a default value here
+process.env.BASE_URL = process.env.BASE_URL || PRODUCTION_URL;
+
+const { APP_ENV, BASE_URL, HEAD } = process.env;
+const IS_EXTENSION = process.env.IS_EXTENSION === '1';
+const IS_PACKAGED_ELECTRON = process.env.IS_PACKAGED_ELECTRON === '1';
+const IS_FIREFOX_EXTENSION = process.env.IS_FIREFOX_EXTENSION === '1';
+const IS_OPERA_EXTENSION = process.env.IS_OPERA_EXTENSION === '1';
 
 const gitRevisionPlugin = new GitRevisionPlugin();
 const branch = HEAD || gitRevisionPlugin.branch();
 const appRevision = !branch || branch === 'HEAD' ? gitRevisionPlugin.commithash()?.substring(0, 7) : branch;
+const canUseStatoscope = !IS_EXTENSION && !IS_PACKAGED_ELECTRON;
+const connectSrcExtraUrl = APP_ENV === 'development' ? process.env.CSP_CONNECT_SRC_EXTRA_URL ?? '' : '';
+
+// The `connect-src` rule contains `https:` due to arbitrary requests are needed for jetton JSON configs.
+// The `img-src` rule contains `https:` due to arbitrary image URLs being used as jetton logos.
+// The `media-src` rule contains `data:` because of iOS sound initialization.
+const CSP = `
+  default-src 'none';
+  manifest-src 'self';
+  connect-src 'self' https: http://localhost:3000 ${connectSrcExtraUrl};
+  script-src 'self' 'wasm-unsafe-eval';
+  style-src 'self' https://fonts.googleapis.com/;
+  img-src 'self' data: https:;
+  media-src 'self' data:;
+  object-src 'none';
+  base-uri 'none';
+  font-src 'self' https://fonts.gstatic.com/;
+  form-action 'none';`
+  .replace(/\s+/g, ' ').trim();
 
 const appVersion = require('./package.json').version;
 
 const defaultI18nFilename = path.resolve(__dirname, './src/i18n/en.json');
-
-dotenv.config();
 
 export default function createConfig(
   _: any,
@@ -39,6 +66,16 @@ export default function createConfig(
   return {
     mode,
     target: 'web',
+
+    optimization: {
+      usedExports: true,
+      ...(APP_ENV === 'staging' && {
+        chunkIds: 'named',
+      }),
+      ...(IS_EXTENSION && {
+        minimize: false,
+      }),
+    },
 
     entry: {
       main: './src/index.tsx',
@@ -62,6 +99,9 @@ export default function createConfig(
       ],
       devMiddleware: {
         stats: 'minimal',
+      },
+      headers: {
+        'Content-Security-Policy': CSP,
       },
     },
 
@@ -105,7 +145,7 @@ export default function createConfig(
                 modules: {
                   exportLocalsConvention: 'camelCase',
                   auto: true,
-                  localIdentName: mode === 'production' ? '[hash:base64]' : '[name]__[local]',
+                  localIdentName: APP_ENV === 'production' ? '[hash:base64]' : '[name]__[local]',
                 },
               },
             },
@@ -138,9 +178,33 @@ export default function createConfig(
       fallback: {
         crypto: false,
       },
+      alias: {
+        // It is used to remove duplicate dependencies
+        'bn.js': path.join(__dirname, 'node_modules/bn.js/lib/bn.js'),
+      },
     },
 
     plugins: [
+      ...(IS_OPERA_EXTENSION ? [{
+        apply: (compiler: Compiler) => {
+          compiler.hooks.afterDone.tap('After Compilation', async () => {
+            const dir = './dist/';
+
+            for (const filename of await fs.promises.readdir(dir)) {
+              const file = path.join(dir, filename);
+
+              if (file.endsWith('.tgs')) {
+                await fs.promises.rename(file, file.replace('.tgs', '.json'));
+              } else if (filename.includes('main') && filename.endsWith('.js')) {
+                const content = (await fs.promises.readFile(file))
+                  .toString('utf-8')
+                  .replace(/\.tgs"/g, '.json"');
+                await fs.promises.writeFile(file, content);
+              }
+            }
+          });
+        },
+      }] : []),
       new WebpackBeforeBuildPlugin((stats: any, callback: VoidFunction) => {
         const defaultI18nYaml = fs.readFileSync('./src/i18n/en.yaml', 'utf8');
         const defaultI18nJson = convertI18nYamlToJson(defaultI18nYaml, mode === 'production');
@@ -156,10 +220,22 @@ export default function createConfig(
       new HtmlPlugin({
         template: 'src/index.html',
         chunks: ['main'],
+        csp: CSP,
       }),
       new PreloadWebpackPlugin({
         include: 'allAssets',
-        fileWhitelist: [/duck_.*?\.png/], // Lottie thumbs
+        fileWhitelist: [
+          /duck_.*?\.png/, // Lottie thumbs
+          /coin_.*?\.png/, // Coin icons
+          /theme_.*?\.png/, // Theme icons
+          /chain_.*?\.png/, // Chain icons
+          /settings_.*?\.svg/, // Settings icons (svg)
+        ],
+        as(entry: string) {
+          if (/\.png$/.test(entry)) return 'image';
+          if (/\.svg$/.test(entry)) return 'image';
+          return 'script';
+        },
       }),
       new MiniCssExtractPlugin({
         filename: '[name].[contenthash].css',
@@ -169,7 +245,6 @@ export default function createConfig(
       /* eslint-disable no-null/no-null */
       new EnvironmentPlugin({
         APP_ENV: 'production',
-        APP_MOCKED_CLIENT: '',
         APP_NAME: null,
         APP_VERSION: appVersion,
         APP_REVISION: appRevision,
@@ -180,12 +255,20 @@ export default function createConfig(
         TONHTTPAPI_TESTNET_API_KEY: null,
         TONAPIIO_MAINNET_URL: null,
         TONAPIIO_TESTNET_URL: null,
+        TONINDEXER_MAINNET_URL: null,
+        TONINDEXER_TESTNET_URL: null,
         BRILLIANT_API_BASE_URL: null,
         PROXY_HOSTS: null,
         STAKING_POOLS: null,
-        IS_ELECTRON: false,
+        LIQUID_POOL: null,
+        LIQUID_JETTON: null,
+        IS_PACKAGED_ELECTRON: false,
         ELECTRON_TONHTTPAPI_MAINNET_API_KEY: null,
         ELECTRON_TONHTTPAPI_TESTNET_API_KEY: null,
+        BASE_URL,
+        IS_EXTENSION: false,
+        IS_FIREFOX_EXTENSION: false,
+        IS_CAPACITOR: false,
       }),
       /* eslint-enable no-null/no-null */
       new DefinePlugin({
@@ -204,7 +287,29 @@ export default function createConfig(
         patterns: [
           {
             from: 'src/extension/manifest.json',
-            transform: (content) => content.toString().replace('%%VERSION%%', appVersion),
+            transform: (content) => {
+              const manifest = JSON.parse(content.toString());
+              manifest.version = appVersion;
+              manifest.content_security_policy = {
+                extension_pages: CSP,
+              };
+
+              if (IS_FIREFOX_EXTENSION) {
+                manifest.background = {
+                  scripts: [manifest.background.service_worker],
+                };
+                manifest.host_permissions = ['<all_urls>'];
+                manifest.permissions = manifest.permissions.filter((value: string) => value !== 'system.display');
+                manifest.browser_specific_settings = {
+                  gecko: {
+                    id: '{98fcdaee-2b58-4f71-8a3c-f0c66f24dede}',
+                    strict_min_version: '91.1.0', // Minimum version for using a proxy
+                  },
+                };
+              }
+
+              return JSON.stringify(manifest, undefined, 2);
+            },
           },
           {
             from: 'src/i18n/*.yaml',
@@ -215,8 +320,17 @@ export default function createConfig(
           },
         ],
       }),
-      ...(mode === 'production' ? [new BundleAnalyzerPlugin({ analyzerMode: 'static', openAnalyzer: false })] : []),
-      ...(ENV_EXTENSION === '1'
+      ...(canUseStatoscope ? [new StatoscopeWebpackPlugin({
+        statsOptions: {
+          context: __dirname,
+        },
+        saveReportTo: path.resolve('./public/statoscope-report.html'),
+        saveStatsTo: path.resolve('./public/statoscope-build-statistics.json'),
+        normalizeStats: true,
+        open: false,
+        extensions: [new WebpackContextExtension()], // eslint-disable-line @typescript-eslint/no-use-before-define
+      })] : []),
+      ...(IS_EXTENSION
         ? [
           new NormalModuleReplacementPlugin(
             /src\/api\/providers\/worker\/connector\.ts/,
@@ -227,13 +341,7 @@ export default function createConfig(
     ],
 
     devtool:
-      ENV_EXTENSION === '1' ? 'cheap-source-map' : APP_ENV === 'production' && IS_ELECTRON ? undefined : 'source-map',
-
-    ...(ENV_EXTENSION === '1' && {
-      optimization: {
-        minimize: false,
-      },
-    }),
+      IS_EXTENSION ? 'cheap-source-map' : APP_ENV === 'production' && IS_PACKAGED_ELECTRON ? undefined : 'source-map',
   };
 }
 
@@ -272,4 +380,23 @@ function convertI18nYamlToJson(content: string, shouldThrowException: boolean): 
   }
 
   return undefined;
+}
+
+class WebpackContextExtension {
+  context: string;
+
+  constructor() {
+    this.context = '';
+  }
+
+  handleCompiler(compiler: Compiler) {
+    this.context = compiler.context;
+  }
+
+  getExtension() {
+    return {
+      descriptor: { name: 'custom-webpack-extension-context', version: '1.0.0' },
+      payload: { context: this.context },
+    };
+  }
 }

@@ -1,5 +1,5 @@
 .Tab {
-  cursor: pointer;
+  cursor: var(--custom-cursor, pointer);
 
   display: flex;
   flex: 1 1 auto;
@@ -23,7 +23,7 @@
     outline: none;
   }
 
-  &:not(&_active):active .content {
+  :global(html:not(.animation-level-0)) &:not(&_active):active .content {
     color: var(--color-blue) !important;
 
     background-color: var(--color-interactive-tab-active) !important;
@@ -76,7 +76,7 @@
 
   box-sizing: content-box;
   width: calc(100% - 1.5rem);
-  height: 0.1875rem;
+  height: 0.125rem;
 
   opacity: 0;
   background-color: var(--color-blue);

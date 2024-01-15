@@ -1,16 +1,22 @@
-import type { Address, DictionaryValue, Slice } from 'ton-core';
-import { Cell, Dictionary } from 'ton-core';
+import type { Address, DictionaryValue } from 'ton-core';
+import {
+  BitReader, BitString, Builder, Cell, Dictionary, Slice,
+} from 'ton-core';
 
-import type { ApiNetwork } from '../../../types';
-import type { JettonMetadata } from '../types';
+import type { ApiNetwork, ApiParsedPayload } from '../../../types';
+import type { ApiTransactionExtra, JettonMetadata } from '../types';
 
-import { pick } from '../../../../util/iteratees';
+import { LIQUID_JETTON } from '../../../../config';
+import { pick, range } from '../../../../util/iteratees';
 import { logDebugError } from '../../../../util/logs';
-import { base64ToString, handleFetchErrors, sha256 } from '../../../common/utils';
-import { JettonOpCode } from '../constants';
-import { getJettonMinterData } from './tonweb';
-
-const IPFS_GATEWAY_BASE_URL: string = 'https://ipfs.io/ipfs/';
+import { fetchJsonMetadata } from '../../../../util/metadata';
+import { base64ToString, sha256 } from '../../../common/utils';
+import {
+  DEFAULT_IS_BOUNCEABLE, JettonOpCode, LiquidStakingOpCode, NftOpCode, OpCode,
+} from '../constants';
+import { buildTokenSlug } from './index';
+import { fetchNftItems } from './tonapiio';
+import { getJettonMinterData, resolveTokenMinterAddress } from './tonweb';
 
 const ONCHAIN_CONTENT_PREFIX = 0x00;
 const SNAKE_PREFIX = 0x00;
@@ -23,50 +29,53 @@ export function parseJettonWalletMsgBody(body?: string) {
     const opCode = slice.loadUint(32);
     const queryId = slice.loadUint(64);
 
-    if (opCode === JettonOpCode.transfer || opCode === JettonOpCode.internalTransfer) {
-      const jettonAmount = slice.loadCoins();
-      const address = slice.loadMaybeAddress();
-      const responseAddress = slice.loadMaybeAddress();
-      let forwardAmount: bigint | undefined;
-      let forwardComment: string | undefined;
+    if (opCode !== JettonOpCode.Transfer && opCode !== JettonOpCode.InternalTransfer) {
+      return undefined;
+    }
 
-      if (responseAddress) {
-        if (opCode === JettonOpCode.transfer) {
-          slice.loadBit();
-        }
-        forwardAmount = slice.loadCoins();
-        const isSeparateCell = slice.remainingBits && slice.loadBit();
-        if (isSeparateCell && slice.remainingRefs) {
-          slice = slice.loadRef().beginParse();
-        }
-        if (slice.remainingBits > 32 && slice.loadUint(32) === 0) {
-          forwardComment = slice.loadStringTail();
+    const jettonAmount = slice.loadCoins();
+    const address = slice.loadMaybeAddress();
+    const responseAddress = slice.loadMaybeAddress();
+    let forwardAmount: bigint | undefined;
+    let comment: string | undefined;
+    let encryptedComment: string | undefined;
+
+    if (responseAddress) {
+      if (opCode === JettonOpCode.Transfer) {
+        slice.loadBit();
+      }
+      forwardAmount = slice.loadCoins();
+      const isSeparateCell = slice.remainingBits && slice.loadBit();
+      if (isSeparateCell && slice.remainingRefs) {
+        slice = slice.loadRef().beginParse();
+      }
+      if (slice.remainingBits > 32) {
+        const forwardOpCode = slice.loadUint(32);
+        if (forwardOpCode === OpCode.Comment) {
+          const buffer = readSnakeBytes(slice);
+          comment = buffer.toString('utf-8');
+        } else if (forwardOpCode === OpCode.Encrypted) {
+          const buffer = readSnakeBytes(slice);
+          encryptedComment = buffer.toString('base64');
         }
       }
-
-      return {
-        operation: JettonOpCode[opCode],
-        queryId,
-        jettonAmount,
-        responseAddress,
-        address: address ? toBounceableAddress(address) : undefined,
-        forwardAmount,
-        forwardComment,
-      };
     }
+
+    return {
+      operation: JettonOpCode[opCode] as keyof typeof JettonOpCode,
+      queryId,
+      jettonAmount,
+      responseAddress,
+      address: address ? toBase64Address(address) : undefined,
+      forwardAmount,
+      comment,
+      encryptedComment,
+    };
   } catch (err) {
     logDebugError('parseJettonWalletMsgBody', err);
   }
 
   return undefined;
-}
-
-export function toBounceableAddress(address: Address) {
-  return address.toString({ urlSafe: true, bounceable: true });
-}
-
-export function fixIpfsUrl(url: string) {
-  return url.replace('ipfs://', IPFS_GATEWAY_BASE_URL);
 }
 
 export function fixBase64ImageData(data: string) {
@@ -112,20 +121,20 @@ const jettonOnChainMetadataSpec: {
   decimals: 'utf8',
 };
 
-export async function getJettonMetadata(network: ApiNetwork, address: string) {
+export async function fetchJettonMetadata(network: ApiNetwork, address: string) {
   const { jettonContentUri, jettonContentCell } = await getJettonMinterData(network, address);
 
   let metadata: JettonMetadata;
 
   if (jettonContentUri) {
     // Off-chain content
-    metadata = await fetchJettonMetadata(jettonContentUri);
+    metadata = await fetchJettonOffchainMetadata(jettonContentUri);
   } else {
     // On-chain content
     metadata = await parseJettonOnchainMetadata(await jettonContentCell.toBoc());
     if (metadata.uri) {
       // Semi-chain content
-      const offchainMetadata = await fetchJettonMetadata(metadata.uri);
+      const offchainMetadata = await fetchJettonOffchainMetadata(metadata.uri);
       metadata = { ...offchainMetadata, ...metadata };
     }
   }
@@ -157,15 +166,227 @@ export async function parseJettonOnchainMetadata(array: Uint8Array): Promise<Jet
   return res as JettonMetadata;
 }
 
-export async function fetchJettonMetadata(uri: string): Promise<JettonMetadata> {
+export async function fetchJettonOffchainMetadata(uri: string): Promise<JettonMetadata> {
   const metadata = await fetchJsonMetadata(uri);
   return pick(metadata, ['name', 'description', 'symbol', 'decimals', 'image', 'image_data']);
 }
 
-async function fetchJsonMetadata(uri: string) {
-  uri = fixIpfsUrl(uri);
+export async function parseWalletTransactionBody(
+  network: ApiNetwork, transaction: ApiTransactionExtra,
+): Promise<ApiTransactionExtra> {
+  const body = transaction.extraData?.body;
+  if (!body || transaction.comment || transaction.encryptedComment) {
+    return transaction;
+  }
 
-  const response = await fetch(uri);
-  handleFetchErrors(response);
-  return response.json();
+  try {
+    const slice = dataToSlice(body);
+
+    if (slice.remainingBits > 32) {
+      const parsedPayload = await parsePayloadSlice(network, transaction.toAddress, slice);
+      transaction.extraData!.parsedPayload = parsedPayload;
+
+      if (parsedPayload?.type === 'comment') {
+        transaction = {
+          ...transaction,
+          comment: parsedPayload.comment,
+        };
+      } else if (parsedPayload?.type === 'encrypted-comment') {
+        transaction = {
+          ...transaction,
+          encryptedComment: parsedPayload.encryptedComment,
+        };
+      }
+    }
+  } catch (err) {
+    logDebugError('parseTransactionBody', err);
+  }
+
+  return transaction;
+}
+
+export async function parsePayloadBase64(
+  network: ApiNetwork, toAddress: string, base64: string,
+): Promise<ApiParsedPayload> {
+  const slice = dataToSlice(base64);
+  const result: ApiParsedPayload = { type: 'unknown', base64 };
+
+  if (!slice) return result;
+
+  return await parsePayloadSlice(network, toAddress, slice) ?? result;
+}
+
+export async function parsePayloadSlice(
+  network: ApiNetwork, toAddress: string, slice: Slice,
+): Promise<ApiParsedPayload | undefined> {
+  try {
+    const opCode = slice.loadUint(32);
+
+    if (opCode === OpCode.Comment) {
+      const buffer = readSnakeBytes(slice);
+      const comment = buffer.toString('utf-8');
+      return { type: 'comment', comment };
+    } else if (opCode === OpCode.Encrypted) {
+      const buffer = readSnakeBytes(slice);
+      const encryptedComment = buffer.toString('base64');
+      return { type: 'encrypted-comment', encryptedComment };
+    }
+
+    const queryId = slice.loadUint(64).toString();
+
+    switch (opCode) {
+      case JettonOpCode.Transfer: {
+        const minterAddress = await resolveTokenMinterAddress(network, toAddress);
+        const slug = buildTokenSlug(minterAddress);
+
+        const amount = slice.loadCoins();
+        const destination = slice.loadAddress();
+        const responseDestination = slice.loadMaybeAddress();
+
+        if (!responseDestination) {
+          return {
+            type: 'tokens:transfer-non-standard',
+            queryId,
+            destination: toBase64Address(destination),
+            amount: amount.toString(),
+            slug,
+          };
+        }
+
+        const customPayload = slice.loadMaybeRef();
+        const forwardAmount = slice.loadCoins();
+        let forwardPayload = slice.loadMaybeRef();
+        if (!forwardPayload && slice.remainingBits) {
+          const builder = new Builder().storeBits(slice.loadBits(slice.remainingBits));
+          range(0, slice.remainingRefs).forEach(() => {
+            builder.storeRef(slice.loadRef());
+          });
+          forwardPayload = builder.endCell();
+        }
+
+        return {
+          type: 'tokens:transfer',
+          queryId,
+          amount: amount.toString(),
+          destination: toBase64Address(destination),
+          responseDestination: toBase64Address(responseDestination),
+          customPayload: customPayload?.toBoc().toString('base64'),
+          forwardAmount: forwardAmount.toString(),
+          forwardPayload: forwardPayload?.toBoc().toString('base64'),
+          slug,
+        };
+      }
+      case NftOpCode.TransferOwnership: {
+        const newOwner = slice.loadAddress();
+        const responseDestination = slice.loadAddress();
+        const customPayload = slice.loadMaybeRef();
+        const forwardAmount = slice.loadCoins();
+
+        let forwardPayload = slice.loadMaybeRef();
+        if (!forwardPayload && slice.remainingBits) {
+          const builder = new Builder().storeBits(slice.loadBits(slice.remainingBits));
+          range(0, slice.remainingRefs).forEach(() => {
+            builder.storeRef(slice.loadRef());
+          });
+          forwardPayload = builder.endCell();
+        }
+
+        const nftAddress = toAddress;
+        const [nft] = await fetchNftItems(network, [nftAddress]);
+        return {
+          type: 'nft:transfer',
+          queryId,
+          newOwner: toBase64Address(newOwner),
+          responseDestination: toBase64Address(responseDestination),
+          customPayload: customPayload?.toBoc().toString('base64'),
+          forwardAmount: forwardAmount.toString(),
+          forwardPayload: forwardPayload?.toBoc().toString('base64'),
+          nftAddress,
+          nftName: nft?.metadata?.name,
+        };
+      }
+      case JettonOpCode.Burn: {
+        const minterAddress = await resolveTokenMinterAddress(network, toAddress);
+        const slug = buildTokenSlug(minterAddress);
+
+        const amount = slice.loadCoins();
+        const address = slice.loadAddress();
+        const customPayload = slice.loadMaybeRef();
+        const isLiquidUnstakeRequest = minterAddress === LIQUID_JETTON;
+
+        return {
+          type: 'tokens:burn',
+          queryId,
+          amount: amount.toString(),
+          address: toBase64Address(address),
+          customPayload: customPayload?.toBoc().toString('base64'),
+          slug,
+          isLiquidUnstakeRequest,
+        };
+      }
+      case LiquidStakingOpCode.DistributedAsset: {
+        return {
+          type: 'liquid-staking:withdrawal-nft',
+          queryId,
+        };
+      }
+      case LiquidStakingOpCode.Withdrawal: {
+        return {
+          type: 'liquid-staking:withdrawal',
+          queryId,
+        };
+      }
+      case LiquidStakingOpCode.Deposit: {
+        // const amount = slice.loadCoins();
+        return {
+          type: 'liquid-staking:deposit',
+          queryId,
+        };
+      }
+    }
+  } catch (err) {
+    logDebugError('parsePayload', err);
+  }
+
+  return undefined;
+}
+
+function toBase64Address(address: Address, isBounceable = DEFAULT_IS_BOUNCEABLE) {
+  return address.toString({ urlSafe: true, bounceable: isBounceable });
+}
+
+function dataToSlice(data: string | Buffer | Uint8Array): Slice {
+  let buffer: Buffer;
+  if (typeof data === 'string') {
+    buffer = Buffer.from(data, 'base64');
+  } else if (data instanceof Buffer) {
+    buffer = data;
+  } else {
+    buffer = Buffer.from(data);
+  }
+
+  try {
+    return Cell.fromBoc(buffer)[0].beginParse();
+  } catch (err: any) {
+    if (err?.message !== 'Invalid magic') {
+      throw err;
+    }
+  }
+
+  return new Slice(new BitReader(new BitString(buffer, 0, buffer.length * 8)), []);
+}
+
+export function readSnakeBytes(slice: Slice) {
+  let buffer = Buffer.alloc(0);
+
+  while (slice.remainingBits > 8) {
+    buffer = Buffer.concat([buffer, slice.loadBuffer(slice.remainingBits / 8)]);
+    if (slice.remainingRefs) {
+      slice = slice.loadRef().beginParse();
+    } else {
+      break;
+    }
+  }
+
+  return buffer;
 }

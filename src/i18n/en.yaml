@@ -7,14 +7,7 @@ Import From %1$d Secret Words: Import From %1$d Secret Words
 More about MyTonWallet: More about MyTonWallet
 Creating Wallet...: Creating Wallet...
 On the count of three...: On the count of three...
-$auth_backup_description1: |
-  This is a **secure wallet**
-  and is only **controlled by you**.
-$auth_backup_description2: "And with great power comes **great responsibility**."
-$auth_backup_description3: |
-  You need to manually **back up secret keys** in case you forget your password or lose access to this device.
 Back Up: Back Up
-Skip For Now: Skip For Now
 Passwords must be equal.: Passwords must be equal.
 To protect your wallet as much as possible, use a password with: To protect your wallet as much as possible, use a password with
 $auth_password_rule_8chars: at least 8 characters
@@ -35,8 +28,7 @@ Continue or change password to something more secure?: Continue or change passwo
 Change: Change
 "%1$d Secret Words": "%1$d Secret Words"
 $auth_import_mnemonic_description: |
-  You can restore access to your wallet by entering the %1$d secret words
-  that you wrote down when creating the wallet.
+  You can restore access to your wallet by entering the %1$d secret words that you wrote down when creating the wallet.
 Let’s make sure your secrets words are recorded correctly.: Let’s make sure your secrets words are recorded correctly.
 $mnemonic_check_words_list: Please enter the words **%1$s** below.
 $mnemonic_check_error: The secret words you have entered do not match the ones in the list. Please try again.
@@ -67,7 +59,8 @@ Back Up Secret Words: Back Up Secret Words
 Settings: Settings
 About: About
 Exit: Exit
-Something went wrong: Something went wrong
+Remove Wallet: Remove Wallet
+Something went wrong.: Something went wrong.
 Logo: Logo
 $about_description1: Securely store crypto, explore decentralized apps, and make blockchain payments at the **speed of light**.
 $about_description2: The wallet is **non-custodial and safe**. The developers **do not** have access to your funds, browser history or any other information.
@@ -103,27 +96,26 @@ Are you sure you want to remove this address from your saved ones?: Are you sure
 You will be able to save it again via Transaction Info with this address.: You will be able to save it again via Transaction Info with this address.
 Address removed from saved: Address removed from saved
 Warning!: Warning!
-Log Out: Log Out
-$logout_without_backup_warning: You have not backed up this wallet. If you log out, you will lose access to your tokens and NFTs.
-$logout_accounts_without_backup_warning: You have not backed up %links%. If you log out, you will lose access to your tokens and NFTs.
-$logout_warning: This will disconnect the wallet from this app. You will be able to restore your wallet using **%1$d secret words** - or import another wallet.
+Log Out: Remove Wallet
+$logout_without_backup_warning: You have not backed up this wallet. If you remove it now, you will lose access to your tokens and NFTs.
+$logout_accounts_without_backup_warning: You have not backed up %links%. If you proceed, you will lose access to your tokens and NFTs.
+$logout_warning: This will remove the current wallet from the app. Make sure you have your **%1$d secret words** backed up.
 Receive TON: Receive TON
 Your address was copied!: Your address was copied!
-Show QR-Code: Show QR-Code
-Create Invoice: Create Invoice
-QR-code: QR-code
+Show QR Code: Show QR Code
+Create Deposit Link: Create Deposit Link
+QR Code: QR Code
 $receive_invoice_description: |
   You can specify the amount and purpose of
-  the payment to save the sender some time
+  the payment to save the sender some time.
 Amount: Amount
 Comment: Comment
 Share this URL to receive TON: Share this URL to receive TON
 Invoice link was copied!: Invoice link was copied!
-US Dollar: US Dollar
 Theme: Theme
 Language: Language
 Enable Animations: Enable Animations
-Fiat Currency: Fiat Currency
+Base Currency: Base Currency
 Investor View: Investor View
 Toggle Investor View: Toggle Investor View
 Hide Tiny Transfers: Hide Tiny Transfers
@@ -152,7 +144,6 @@ Switch Account: Switch Account
 Copy wallet address: Copy wallet address
 View address on TON Explorer: View address on TON Explorer
 Open on CoinMarketCap: Open on CoinMarketCap
-No Activity: No Activity
 You have just created a new wallet: You have just created a new wallet
 You can now transfer your tokens from another wallet or exchange.: You can now transfer your tokens from another wallet or exchange.
 Assets: Assets
@@ -173,15 +164,15 @@ Testnet Version: Testnet Version
 Error reading clipboard: Error reading clipboard
 $fee_value: "Fee: %fee%"
 Loading...: Loading...
-Recipient address: Recipient address
+Recipient Address: Recipient Address
 Wallet address or domain: Wallet address or domain
 Incorrect address: Incorrect address
+Incorrect address.: Incorrect address.
 Paste: Paste
 Insufficient balance: Insufficient balance
 InsufficientBalance: Insufficient balance
 Optional: Optional
 $send_token_symbol: Send %1$s
-$your_balance_is: "Your balance: %balance%"
 Is it all ok?: Is it all ok?
 Receiving Address: Receiving Address
 Fee: Fee
@@ -202,28 +193,27 @@ View Address on TON Explorer: View Address on TON Explorer
 No suggestions, you're on your own!: No suggestions, you're on your own!
 Play Sounds: Play Sounds
 Focus on asset value rather than current balance: Focus on asset value rather than current balance
-$logout_confirm: Log out of **all** wallets
+$logout_confirm: Remove **all** wallets
 $logout_warning2: Wallets are located in the decentralized TON Blockchain. If you want the wallet to be deleted simply transfer all the TON from it and leave it empty.
 $tiny_transfers_help: Turn this off to display transactions of less than %1$d %2$s. Please be aware that such transactions are often used for spam and scam purposes.
 Today: Today
 Yesterday: Yesterday
 Now: Now
 $receive_ton_description: |
-  You can share this address, show QR-code
-  or create invoice to receive TON
+  You can share your address, scan QR code
+  or create a deposit link to receive crypto.
 Your address: Your address
-Wrong password, please try again: Wrong password, please try again
+Wrong password, please try again.: Wrong password, please try again.
 Appearance: Appearance
 Light: Light
 Dark: Dark
 System: System
-Create Backup: Create Backup
 Stake TON: Stake TON
 Earn from your tokens while holding them: Earn from your tokens while holding them
 $est_apy_val: Est. APY %1$d%
 Why this is safe: Why this is safe
 Why staking is safe?: Why staking is safe?
-$safe_staking_description1: Staking is **fully decentralized** and operated by the **official TON Nominator** smart contract. No one can gain access to your staked tokens.
+$safe_staking_description1: Staking is **fully decentralized** and operated by the **official TON Liquid Staking** smart contracts.
 $safe_staking_description2: The deposited stake will be used for the TON network validation as part of its **proof-of-stake** essence.
 $safe_staking_description3: You can withdraw your stake at **any time** and it will be deposited back to your account within **two days**.
 $min_value: Min %value%
@@ -234,9 +224,9 @@ Coins have been staked!: Coins have been staked!
 View: View
 Stake More: Stake More
 Staking: Staking
-Currently staked: Currently staked
+Currently Staked: Currently Staked
 Unstake: Unstake
-Earning history: Earning history
+Earning History: Earning History
 $total: "Total: %value%"
 Unstake TON: Unstake TON
 $unstake_information_with_time: |
@@ -280,12 +270,11 @@ Total Amount: Total Amount
 Unstaking: Unstaking
 "Handle ton:// links": Handle ton:// links
 Back up wallet to have full access to it: Back up wallet to have full access to it
-Improve wallet security: Improve wallet security
-by installing browser extension or native app: by installing browser extension or native app
+Consider More Secure Version: Consider More Secure Version
+Install our native app or browser extension.: Install our native app or browser extension.
 Scam: Scam
 Scam comment is hidden.: Scam comment is hidden.
 Display: Display
-$dapp_transfer_tokens_payload_with_comment: Send %amount% to %address% with comment «%comment%»
 $dapp_transfer_tokens_payload: Sending %amount% from your account to %address%
 $dapp_transfer_nft_payload: Sending NFT "%nft%" from your account to %address%
 Connected Dapps: Connected Dapps
@@ -295,14 +284,23 @@ Disconnect Dapp: Disconnect Dapp
 Disconnect Dapps: Disconnect Dapps
 Are you sure you want to disconnect?: Are you sure you want to disconnect %dappname%?
 Are you sure you want to disconnect all websites?: Are you sure you want to disconnect all websites?
-$dapps-description: You can log in on dapps that support MyTonWallet. They can view wallet address and balance.
+$dapps-description: You can log in on dapps that support MyTonWallet. They can view wallet address, balance, and request operations.
 Logged in with MyTonWallet: Logged in with MyTonWallet
 No active connections: No active connections
 Unstaked successfully: Unstaked successfully
 Other: Other
 Assets & Activity: Assets & Activity
+Tokens Settings: Tokens Settings
+Your Tokens: Your Tokens
+Add Token: Add Token
+Delete Token: Delete Token
+Are you sure you want to delete?: Are you sure you want to delete %token%?
+Hide Tokens With No Balance: Hide Tokens With No Balance
+Hide Tokens With No Price: Hide Tokens With No Price
+Sort By Value: Sort By Value
 Update: Update
 Restart: Restart
+Update MyTonWallet: Update MyTonWallet
 Connect Ledger: Connect Ledger
 Connecting to your Ledger...: Connecting to your Ledger...
 Failed to connect: Failed to connect
@@ -324,8 +322,198 @@ Switch to the newly opened tab to connect Ledger.: Switch to the newly opened ta
 Once connected, switch back to this window to proceed.: Once connected, switch back to this window to proceed.
 Not all transactions were sent successfully: Not all transactions were sent successfully
 The time on your device is incorrect, sync it and try again: The time on your device is incorrect, sync it and try again
+Name or Address...: Name or Address...
 Such error, many tabs: Such error, many tabs
 $many_tabs_error_description: |
   MyTonWallet supports only one active tab with the app.
   Please reload this page to continue using this tab or close it.
 Reload App: Reload App
+Please confirm operation on your Ledger: Please confirm operation on your Ledger
+Token Not Found: Token Not Found
+Try another keyword or address.: Try another keyword or address.
+Decrypt: Decrypt
+Encrypted Message: Encrypted Message
+Message is encrypted.: Message is encrypted.
+$dapp_ledger_warning1: You are about to send a multi-way transaction using your **Ledger** wallet. You will need to sign each underlying transaction **one by one manually**.
+$dapp_ledger_warning2: Please take your time and do not interrupt the process.
+Agree: Agree
+The hardware wallet does not support this data format: The hardware wallet does not support this data format
+Swap: Swap
+You sell: You sell
+You buy: You buy
+Swap Details: Swap Details
+Blockchain Fee: Blockchain Fee
+Routing Fees: Routing Fees
+Included: Included
+Price Impact: Price Impact
+Minimum Received: Minimum Received
+Slippage: Slippage
+$swap_from_to: Swap %from% to %to%
+The exchange rate is below market value!: The exchange rate is %value% below market value!
+Invalid Pair: Invalid Pair
+We do not recommend to perform an exchange, try to specify a lower amount.: We do not recommend to perform an exchange, try to specify a lower amount.
+$swap_minimum_received_tooltip1: This is the least amount of new tokens you'll get from this swap, considering current market conditions, slippage tolerance, and potential price impact.
+$swap_minimum_received_tooltip2: It's an expected minimum, but if the conditions change a lot while your swap is being processed, the final amount could be less.
+$swap_routing_fees_tooltip: Both decentralized exchange and app fees (~0.875%) are already included in the price you see and will not be charged additionally.
+$swap_price_impact_tooltip1: This shows how much your trade might change the token's price.
+$swap_price_impact_tooltip2: Big trades can make the price go up or down more. Lower is usually better.
+$swap_slippage_tooltip1: This sets how much the price is allowed to change before your swap is processed.
+$swap_slippage_tooltip2: If during the processing of your swap, the price changes more than this value, your order will be canceled.
+Coins have been swapped!: Coins have been swapped!
+Slippage not specified: Slippage not specified
+Slippage too high: Slippage too high
+Not enough TON: Not enough TON
+Use Responsibly: Use Responsibly
+$auth_responsibly_description1: |
+  MyTonWallet is a **self-custodial** wallet, which means that **only you** have full control and, most importantly, **full responsibility** for your funds.
+$auth_responsibly_description2: |
+  Your private keys are stored on your device and are subject to **hacker attacks**. If your computer is infected with **malware**, your funds are likely to be stolen.
+$auth_responsibly_description3: |
+  The MyTonWallet team is **not responsible** for the safety of your funds, just as your computer manufacturer or internet provider is not responsible.
+$auth_responsibly_description4: |
+  **Never** store all your funds in one place. **Diversify** and use various software and hardware. Always **do your own research** and learn more about crypto security.
+Start Wallet: Start Wallet
+$auth_backup_warning_notice: |
+  Now you need to manually **back up secret keys** in case you forget your password or lose access to this device.
+Later: Later
+Back Up Now: Back Up Now
+I have read and accept this information: I have read and accept this information.
+$ledger_verify_address: Always verify pasted address using your Ledger device.
+$ledger_not_ready: Ledger is not connected or TON app is not open.
+Verify now: Verify now
+Invalid address format. Only URL Safe Base64 format is allowed.: Invalid address format. Only URL Safe Base64 format is allowed.
+$auth_backup_description1: |
+  This is a **secure wallet**
+  and is only **controlled by you**.
+$auth_backup_description2: "And with great power comes **great responsibility**."
+$auth_backup_description3: |
+  You need to manually **back up secret keys** in case you forget your password or lose access to this device.
+Swap Placed: Swap Placed
+Swapping: Swapping
+Swapped: Swapped
+Swap Failed: Swap Failed
+Exchange rate: Exchange rate
+Swap Again: Swap Again
+Terms of Use: Terms of Use
+Privacy Policy: Privacy Policy
+Insufficient liquidity: Insufficient liquidity
+This address is new and never received transfers before.: This address is new and never received transfers before.
+Create Backup: Create Backup
+Sending: Sending
+Failed: Failed
+Refunded: Refunded
+On hold: On hold
+Expired: Expired
+In progress: In progress
+Waiting for Payment: Waiting for Payment
+Waiting for payment: Waiting for payment
+Blockchain: Blockchain
+Receiving address in blockchain: Receiving address in %blockchain% blockchain
+Please provide an address of your wallet in another blockchain to receive bought tokens.: Please provide an address of your wallet in another blockchain to receive bought tokens.
+The time for sending coins is over: The time for sending coins is over
+Please wait a few moments...: Please wait a few moments...
+You have not sent the coins to the specified address.: You have not sent the coins to the specified address.
+$swap_changelly_to_ton_description1: "You must send %value% to this address in %blockchain% blockchain within %time%"
+Please contact support and provide a transaction ID.: Please contact support and provide a transaction ID.
+Exchange failed and coins were refunded to your wallet.: Exchange failed and coins were refunded to your wallet.
+Please contact security team to pass the KYC procedure.: Please contact security team to pass the KYC procedure.
+Swap Expired: Swap Expired
+Swap On Hold: Swap On Hold
+Swap Refunded: Swap Refunded
+Changelly Payment Address: Changelly Payment Address
+Cross-chain exchange provided by Changelly: Cross-chain exchange provided by Changelly
+$swap_changelly_agreement_message: By continuing, you agree to the %terms% and %policy% and understand that the transaction may trigger verification according to %kyc%.
+$swap_changelly_terms_of_use: terms of use
+$swap_changelly_privacy_policy: privacy policy
+Password must contain %length% digits.: Password must contain %length% digits.
+Deposit Link: Deposit Link
+$swap_changelly_from_ton_description: "Tokens will be sent to your address in %blockchain% blockchain in a few moments:"
+Minimum amount: Minimum %value%
+Maximum amount: Maximum %value%
+Display Tray Icon: Display Tray Icon
+Enable Auto-Updates: Enable Auto-Updates
+Biometric Authentication: Biometric Authentication
+Turn off biometrics?: Turn off biometrics?
+If you turn off biometric protection, you will need to create a password.: If you turn off biometric protection, you will need to create a password.
+Enter your current password: Enter your current password
+Turn On Biometrics: Turn On Biometrics
+Please confirm transaction using biometrics: Please confirm transaction using biometrics
+Enabling biometric confirmation will reset the password.: Enabling biometric confirmation will reset the password.
+Biometric Registration: Biometric Registration
+Step 1 of 2. Registration: Step 1 of 2. Registration
+Step 2 of 2. Verification: Step 2 of 2. Verification
+Biometric setup failed.: Biometric setup failed.
+Biometric confirmation failed.: Biometric confirmation failed.
+Failed to disable biometrics.: Failed to disable biometrics.
+Biometric Confirmation: Biometric Confirmation
+Please verify the operation.: Please verify the operation.
+Create Password: Create Password
+Complete: Complete
+Verification: Verification
+Create a password or use biometric authentication to protect it.: Create a password or use biometric authentication to protect it.
+Connect Biometrics: Connect Biometrics
+Use Password: Use Password
+Biometrics Disabled: Biometrics Disabled
+Biometrics Enabled: Biometrics Enabled
+A request is already pending: A request is already pending
+Please confirm operation using biometrics: Please confirm operation using biometrics
+Scan QR Code: Scan QR Code
+Permission denied. Please grant camera permission to use the QR code scanner.: Permission denied. Please grant camera permission to use the QR code scanner.
+Unsupported barcode format: Unsupported barcode format
+An error on the server side. Please try again.: An error on the server side. Please try again.
+Unrecognized QR Code: Unrecognized QR Code
+$fee_value_almost_equal: Fee ≈ %fee%
+Address was saved!: Address was saved!
+US Dollar: US Dollar
+Euro: Euro
+Ruble: Ruble
+Yuan: Yuan
+Bitcoin: Bitcoin
+Toncoin: Toncoin
+$max_balance: "Max: %balance%"
+$unstake_information_instantly: You will get your deposit instantly.
+Select Token: Select Token
+MY: MY
+POPULAR: POPULAR
+A-Z: A-Z
+Not Found: Not Found
+Wallet is ready!: Wallet is ready!
+Wallet is imported!: Wallet is imported!
+Create a code to protect it: Create a code to protect it
+Enter your code again: Enter your code again
+Codes don't match: Codes don’t match
+Code set successfully: Code set successfully
+Use Biometrics: Use Biometrics
+Use Touch ID: Use Touch ID
+Use Face ID: Use Face ID
+You can connect your biometric data for more convenience: You can connect your biometric data for more convenience
+Connect Touch ID: Connect Touch ID
+Connect Face ID: Connect Face ID
+Not Now: Not Now
+Biometric Authentification: Biometric Authentification
+Touch ID: Touch ID
+Face ID: Face ID
+Turn Off Touch ID?: Turn Off Touch ID?
+Turn Off Face ID?: Turn Off Face ID?
+Turn Off Biometrics?: Turn Off Biometrics?
+Enter code: Enter code
+Enter code or use Face ID: Enter code or use Face ID
+Enter code or use Touch ID: Enter code or use Touch ID
+Enter code or use biometrics: Enter code or use biometrics
+Wrong code, please try again: Wrong code, please try again
+Scan your fingerprint: Scan your fingerprint
+Incorrect code, please try again.: Incorrect code, please try again.
+Correct: Correct
+Confirm Operation: Confirm Operation
+Confirm Swap: Confirm Swap
+"%amount% to %address%": "%amount% to %address%"
+"%amount_from% to %amount_to%": "%amount_from% to %amount_to%"
+Failed to enable biometrics.: Failed to enable biometrics.
+Please try to confirm your biometrics again.: Please try to confirm your biometrics again.
+Unknown error.: Unknown error.
+Are you sure you want to disable Face ID?: Are you sure you want to disable Face ID?
+Are you sure you want to disable Touch ID?: Are you sure you want to disable Touch ID?
+Are you sure you want to disable biometrics?: Are you sure you want to disable biometrics?
+Yes: Yes
+Declined. Please try to confirm transaction using biometrics again.: Declined. Please try to confirm transaction using biometrics again.
+No Activity: No Activity

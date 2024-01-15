@@ -1,5 +1,8 @@
 import type TonWeb from 'tonweb';
 
+import type { ApiParsedPayload } from './payload';
+import type { ApiSseOptions } from './storage';
+
 export type ApiWalletVersion = keyof typeof TonWeb.Wallets['all'];
 
 export type ApiBlockchainKey = 'ton';
@@ -12,19 +15,8 @@ export interface AccountIdParsed {
   network: ApiNetwork;
 }
 
-export interface ApiAccountInfo {
-  version?: ApiWalletVersion;
-  ledger?: {
-    index: number;
-    driver: ApiLedgerDriver;
-    deviceId?: string;
-    deviceName?: string;
-  };
-}
-
 export interface ApiInitArgs {
-  origin: string;
-  newestTxId?: string;
+  isElectron: boolean;
 }
 
 export interface ApiBaseToken {
@@ -34,8 +26,9 @@ export interface ApiBaseToken {
   decimals: number;
   minterAddress?: string;
   image?: string;
-  id?: number;
   isPopular?: boolean;
+  keywords?: string[];
+  cmcSlug?: string;
 }
 
 export interface ApiToken extends ApiBaseToken {
@@ -61,7 +54,7 @@ export interface ApiAddressInfo {
 }
 
 export type ApiTxIdBySlug = Record<string, string | undefined>;
-export type ApiTransactionType = 'stake' | 'unstake' | 'unstakeRequest' | undefined;
+export type ApiTransactionType = 'stake' | 'unstake' | 'unstakeRequest' | 'swap' | undefined;
 
 export interface ApiTransaction {
   txId: string;
@@ -70,6 +63,7 @@ export interface ApiTransaction {
   fromAddress: string;
   toAddress: string;
   comment?: string;
+  encryptedComment?: string;
   fee: string;
   slug: string;
   isIncoming: boolean;
@@ -80,87 +74,55 @@ export interface ApiTransaction {
 export interface ApiTransactionMetadata extends ApiAddressInfo {
 }
 
-export enum ApiTransactionDraftError {
-  InvalidAmount = 'InvalidAmount',
-  InvalidToAddress = 'InvalidToAddress',
-  InsufficientBalance = 'InsufficientBalance',
-  Unexpected = 'Unexpected',
-  DomainNotResolved = 'DomainNotResolved',
-}
-
-export enum ApiTransactionError {
-  PartialTransactionFailure = 'PartialTransactionFailure',
-  IncorrectDeviceTime = 'IncorrectDeviceTime',
-  InsufficientBalance = 'InsufficientBalance',
-  UnsuccesfulTransfer = 'UnsuccesfulTransfer',
-}
-
-export type ApiParsedPayload = {
-  type: 'comment';
-  comment: string;
-} | {
-  type: 'transfer-nft';
-  queryId: string;
-  nftAddress: string;
-  toAddress: string;
-  nftName?: string;
-} | {
-  type: 'transfer-tokens';
-  queryId: string;
-  slug: string;
-  toAddress: string;
-  amount: string;
-  comment?: string;
-} | {
-  type: 'unknown';
-  base64: string;
-};
-
 export interface ApiNft {
   index: number;
   name?: string;
   address: string;
   thumbnail: string;
   image: string;
-  collectionName: string;
-  collectionAddress: string;
+  collectionName?: string;
+  collectionAddress?: string;
   isOnSale: boolean;
+  isHidden?: boolean;
 }
 
 export type ApiHistoryList = Array<[number, number]>;
 export type ApiTokenSimple = Omit<ApiToken, 'quote'>;
 
-export interface ApiPoolState {
-  startOfCycle: number;
-  endOfCycle: number;
-  lastApy: number;
-  minStake: number;
-}
+export type ApiStakingType = 'nominators' | 'liquid';
 
-export interface ApiStakingState {
+export type ApiStakingState = {
+  type: 'nominators';
   amount: number;
   pendingDepositAmount: number;
   isUnstakeRequested: boolean;
+} | {
+  type: 'liquid';
+  tokenAmount: string;
+  amount: number;
+  unstakeRequestAmount: number;
+  apy: number;
+  instantAvailable: string;
+};
+
+export interface ApiNominatorsPool {
+  address: string;
+  apy: number;
+  start: number;
+  end: number;
 }
 
 export interface ApiBackendStakingState {
-  poolAddress: string;
   balance: number;
   totalProfit: number;
-  poolState: ApiPoolState;
-  profitHistory: {
-    timestamp: number;
-    profit: number;
-  }[];
+  nominatorsPool: ApiNominatorsPool;
+  loyaltyType?: ApiLoyaltyType;
 }
 
-export interface ApiDapp {
-  origin: string;
-  url: string;
-  name: string;
-  iconUrl: string;
-  manifestUrl: string;
-}
+export type ApiStakingHistory = {
+  timestamp: number;
+  profit: number;
+}[];
 
 export interface ApiDappPermissions {
   isAddressRequired?: boolean;
@@ -170,6 +132,7 @@ export interface ApiDappPermissions {
 export type ApiDappRequest = {
   origin?: string;
   accountId?: string;
+  sseOptions?: ApiSseOptions;
 } | {
   origin: string;
   accountId: string;
@@ -191,6 +154,7 @@ export interface ApiSubmitTransferOptions {
   amount: string;
   comment?: string;
   fee?: string;
+  shouldEncrypt?: boolean;
 }
 
 export enum Workchain {
@@ -207,12 +171,14 @@ export interface ApiSignedTransfer {
   params: ApiLocalTransactionParams;
 }
 
-export interface ApiLocalTransactionParams {
-  amount: string;
-  fromAddress: string;
-  toAddress: string;
-  comment?: string;
-  fee: string;
-  slug: string;
-  type?: ApiTransactionType;
+export type ApiLocalTransactionParams = Omit<ApiTransaction, 'txId' | 'timestamp' | 'isIncoming'>;
+
+export type ApiBaseCurrency = 'USD' | 'EUR' | 'RUB' | 'CNY' | 'BTC' | 'TON';
+
+export enum ApiLiquidUnstakeMode {
+  Default,
+  Instant,
+  BestRate,
 }
+
+export type ApiLoyaltyType = 'black' | 'platinum' | 'gold' | 'silver' | 'standard';

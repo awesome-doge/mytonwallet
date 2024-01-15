@@ -1,8 +1,11 @@
-import React, { memo, useCallback, useRef } from '../../lib/teact/teact';
+import React, { memo, useRef } from '../../lib/teact/teact';
+import { getActions } from '../../global';
 
 import { IS_WINDOWS } from '../../util/windowEnvironment';
 
 import useElectronDrag from '../../hooks/useElectronDrag';
+import useInterval from '../../hooks/useInterval';
+import useLastCallback from '../../hooks/useLastCallback';
 
 import UpdateApp from './UpdateApp';
 
@@ -13,30 +16,36 @@ type Props = {
   withTitle?: boolean;
 };
 
+const APP_OUTDATED_TIMEOUT_MS = 5 * 60 * 1000; // 5 min
+
 function ElectronHeader({ children, withTitle }: Props) {
+  const { checkAppVersion } = getActions();
+
   // eslint-disable-next-line no-null/no-null
   const containerRef = useRef<HTMLDivElement>(null);
   useElectronDrag(containerRef);
 
-  const handleMinimize = useCallback(() => {
+  const handleMinimize = useLastCallback(() => {
     window.electron?.minimize();
-  }, []);
+  });
 
-  const handleMaximize = useCallback(async () => {
+  const handleMaximize = useLastCallback(async () => {
     if (await window.electron?.getIsMaximized()) {
       window.electron?.unmaximize();
     } else {
       window.electron?.maximize();
     }
-  }, []);
+  });
 
-  const handleClose = useCallback(() => {
+  const handleClose = useLastCallback(() => {
     window.electron?.close();
-  }, []);
+  });
 
-  const handleDoubleClick = useCallback(() => {
+  const handleDoubleClick = useLastCallback(() => {
     window.electron?.handleDoubleClick();
-  }, []);
+  });
+
+  useInterval(checkAppVersion, APP_OUTDATED_TIMEOUT_MS);
 
   if (IS_WINDOWS) {
     return (

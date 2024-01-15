@@ -1,7 +1,10 @@
 import type { RefObject } from 'react';
-import React, { memo, useCallback, useState } from '../../lib/teact/teact';
+import React, { memo, useState } from '../../lib/teact/teact';
 
 import buildClassName from '../../util/buildClassName';
+
+import useLastCallback from '../../hooks/useLastCallback';
+import useShowTransition from '../../hooks/useShowTransition';
 
 import styles from './Button.module.scss';
 
@@ -11,7 +14,7 @@ type OwnProps = {
   className?: string;
   ariaLabel?: string;
   forFormId?: string;
-  kind?: 'transparent' | 'lighter';
+  kind?: 'transparent';
   isSubmit?: boolean;
   isPrimary?: boolean;
   isSimple?: boolean;
@@ -26,6 +29,8 @@ type OwnProps = {
 
 // Longest animation duration
 const CLICKED_TIMEOUT = 400;
+
+const LOADING_CLOSE_DURATION = 200;
 
 function Button({
   ref,
@@ -47,7 +52,11 @@ function Button({
 }: OwnProps) {
   const [isClicked, setIsClicked] = useState(false);
 
-  const handleClick = useCallback(() => {
+  const {
+    shouldRender: shouldRenderLoading,
+  } = useShowTransition(isLoading, undefined, undefined, undefined, undefined, LOADING_CLOSE_DURATION);
+
+  const handleClick = useLastCallback(() => {
     if (!isDisabled && onClick) {
       onClick();
     }
@@ -56,7 +65,13 @@ function Button({
     setTimeout(() => {
       setIsClicked(false);
     }, CLICKED_TIMEOUT);
-  }, [isDisabled, onClick]);
+  });
+
+  const loadingClassName = buildClassName(
+    isLoading !== undefined && styles.loadingInit,
+    isLoading && styles.loadingStart,
+    shouldRenderLoading && styles.loadingAnimation,
+  );
 
   return (
     <button
@@ -68,7 +83,7 @@ function Button({
         isSmall && styles.sizeSmall,
         isPrimary && styles.primary,
         isDisabled && styles.disabled,
-        isLoading && styles.loading,
+        loadingClassName,
         isRound && styles.round,
         isText && styles.isText,
         isDestructive && styles.destructive,
@@ -81,8 +96,7 @@ function Button({
       disabled={isDisabled}
       form={forFormId}
     >
-      {isLoading && <span className={styles.buttonText}>{children}</span>}
-      {!isLoading && children}
+      {children}
     </button>
   );
 }

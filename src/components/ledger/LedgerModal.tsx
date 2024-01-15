@@ -1,13 +1,16 @@
 import React, {
-  memo, useCallback, useState,
+  memo, useState,
 } from '../../lib/teact/teact';
+import { getActions, withGlobal } from '../../global';
 
 import type { Account, HardwareConnectState } from '../../global/types';
 import type { LedgerWalletInfo } from '../../util/ledger/types';
 
-import { getActions, withGlobal } from '../../global';
 import { selectNetworkAccounts } from '../../global/selectors';
 import buildClassName from '../../util/buildClassName';
+import resolveModalTransitionName from '../../util/resolveModalTransitionName';
+
+import useLastCallback from '../../hooks/useLastCallback';
 
 import Modal from '../ui/Modal';
 import Transition from '../ui/Transition';
@@ -48,8 +51,10 @@ function LedgerModal({
   isRemoteTab,
 }: OwnProps & StateProps) {
   const {
+    afterSelectHardwareWallets,
     resetHardwareWalletConnect,
   } = getActions();
+
   const [currentSlide, setCurrentSlide] = useState<number>(
     LedgerModalState.Connect,
   );
@@ -57,14 +62,23 @@ function LedgerModal({
     LedgerModalState.SelectWallets,
   );
 
-  const handleConnected = useCallback(() => {
-    setCurrentSlide(LedgerModalState.SelectWallets);
-  }, []);
+  const handleAddLedgerWallet = useLastCallback(() => {
+    afterSelectHardwareWallets({ hardwareSelectedIndices: [hardwareWallets![0].index] });
+    onClose();
+  });
 
-  const handleLedgerModalClose = useCallback(() => {
+  const handleConnected = useLastCallback((isSingleWallet: boolean) => {
+    if (isSingleWallet) {
+      handleAddLedgerWallet();
+      return;
+    }
+    setCurrentSlide(LedgerModalState.SelectWallets);
+  });
+
+  const handleLedgerModalClose = useLastCallback(() => {
     setCurrentSlide(LedgerModalState.Connect);
     resetHardwareWalletConnect();
-  }, [resetHardwareWalletConnect]);
+  });
 
   // eslint-disable-next-line consistent-return
   function renderContent(isActive: boolean, isFrom: boolean, currentKey: number) {
@@ -72,6 +86,7 @@ function LedgerModal({
       case LedgerModalState.Connect:
         return (
           <LedgerConnect
+            isActive={isActive}
             state={hardwareState}
             isLedgerConnected={isLedgerConnected}
             isTonAppConnected={isTonAppConnected}
@@ -81,21 +96,27 @@ function LedgerModal({
           />
         );
       case LedgerModalState.SelectWallets:
-        return <LedgerSelectWallets accounts={accounts} hardwareWallets={hardwareWallets} onClose={onClose} />;
+        return (
+          <LedgerSelectWallets
+            isActive={isActive}
+            accounts={accounts}
+            hardwareWallets={hardwareWallets}
+            onClose={onClose}
+          />
+        );
     }
   }
 
   return (
     <Modal
       hasCloseButton
-      isSlideUp
       isOpen={isOpen}
       onClose={onClose}
       onCloseAnimationEnd={handleLedgerModalClose}
       dialogClassName={styles.modalDialog}
     >
       <Transition
-        name="pushSlide"
+        name={resolveModalTransitionName()}
         className={buildClassName(modalStyles.transition, 'custom-scroll')}
         slideClassName={modalStyles.transitionSlide}
         activeKey={currentSlide}

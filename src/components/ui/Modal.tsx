@@ -1,20 +1,23 @@
 import type { RefObject } from 'react';
-import type {
-  TeactNode,
-} from '../../lib/teact/teact';
-import React, {
-  useCallback, useEffect, useRef,
-} from '../../lib/teact/teact';
+import type { BottomSheetKeys } from 'native-bottom-sheet';
+import type { TeactNode } from '../../lib/teact/teact';
+import React, { useEffect, useLayoutEffect, useRef } from '../../lib/teact/teact';
 
-import { ANIMATION_END_DELAY } from '../../config';
+import { ANIMATION_END_DELAY, IS_EXTENSION } from '../../config';
 import buildClassName from '../../util/buildClassName';
+import { captureEvents, SwipeDirection } from '../../util/captureEvents';
 import captureKeyboardListeners from '../../util/captureKeyboardListeners';
+import { getIsSwipeToCloseDisabled } from '../../util/modalSwipeManager';
 import trapFocus from '../../util/trapFocus';
-import { IS_EXTENSION } from '../../util/windowEnvironment';
+import { IS_ANDROID, IS_DELEGATED_BOTTOM_SHEET, IS_TOUCH_ENV } from '../../util/windowEnvironment';
+import windowSize from '../../util/windowSize';
 
+import freezeWhenClosed from '../../hooks/freezeWhenClosed';
+import { useDelegatedBottomSheet } from '../../hooks/useDelegatedBottomSheet';
+import { useDelegatingBottomSheet } from '../../hooks/useDelegatingBottomSheet';
 import { useDeviceScreen } from '../../hooks/useDeviceScreen';
-import useEffectWithPrevDeps from '../../hooks/useEffectWithPrevDeps';
 import { dispatchHeavyAnimationEvent } from '../../hooks/useHeavyAnimationCheck';
+import useHistoryBack from '../../hooks/useHistoryBack';
 import useLang from '../../hooks/useLang';
 import useShowTransition from '../../hooks/useShowTransition';
 
@@ -30,7 +33,10 @@ type OwnProps = {
   contentClassName?: string;
   isOpen?: boolean;
   isCompact?: boolean;
-  isSlideUp?: boolean;
+  nativeBottomSheetKey?: BottomSheetKeys;
+  forceFullNative?: boolean; // Always open in "full" size
+  noResetFullNativeOnBlur?: boolean; // Don't reset "full" size on blur
+  forceBottomSheet?: boolean;
   noBackdrop?: boolean;
   noBackdropClose?: boolean;
   header?: any;
@@ -42,12 +48,8 @@ type OwnProps = {
   dialogRef?: RefObject<HTMLDivElement>;
 };
 
-type StateProps = {
-  shouldSkipHistoryAnimations?: boolean;
-};
-
-const ANIMATION_DURATION = 350;
-const ANIMATION_DURATION_PORTRAIT = 500;
+export const CLOSE_DURATION = 350;
+export const CLOSE_DURATION_PORTRAIT = IS_ANDROID ? 200 : 500;
 
 function Modal({
   dialogRef,
@@ -57,7 +59,10 @@ function Modal({
   contentClassName,
   isOpen,
   isCompact,
-  isSlideUp,
+  nativeBottomSheetKey,
+  forceFullNative,
+  forceBottomSheet,
+  noResetFullNativeOnBlur,
   noBackdrop,
   noBackdropClose,
   header,
@@ -66,48 +71,73 @@ function Modal({
   onClose,
   onCloseAnimationEnd,
   onEnter,
-  shouldSkipHistoryAnimations,
-}: OwnProps & StateProps): TeactJsx {
-  const { isPortrait } = useDeviceScreen();
-  const animationDuration = isPortrait ? ANIMATION_DURATION_PORTRAIT : ANIMATION_DURATION;
+}: OwnProps): TeactJsx {
+  const lang = useLang();
+  // eslint-disable-next-line no-null/no-null
+  const modalRef = useRef<HTMLDivElement>(null);
 
+  // eslint-disable-next-line no-null/no-null
+  const localDialogRef = useRef<HTMLDivElement>(null);
+  dialogRef ||= localDialogRef;
+
+  const { isPortrait } = useDeviceScreen();
+
+  const animationDuration = isPortrait ? CLOSE_DURATION_PORTRAIT : CLOSE_DURATION;
   const { shouldRender, transitionClassNames } = useShowTransition(
     isOpen,
     onCloseAnimationEnd,
-    shouldSkipHistoryAnimations,
+    undefined,
     false,
-    shouldSkipHistoryAnimations,
+    undefined,
     animationDuration + ANIMATION_END_DELAY,
   );
 
-  // eslint-disable-next-line no-null/no-null
-  const modalRef = useRef<HTMLDivElement>(null);
-  const lang = useLang();
+  const isSlideUp = !isCompact && isPortrait;
 
-  const handleClose = useCallback(
-    (e: KeyboardEvent) => {
-      if (IS_EXTENSION) {
-        e.preventDefault();
-      }
-
-      onClose();
-    },
-    [onClose],
-  );
+  useHistoryBack({
+    isActive: isOpen,
+    onBack: onClose,
+  });
 
   useEffect(
-    () => (isOpen ? captureKeyboardListeners({ onEsc: handleClose, onEnter }) : undefined),
-    [handleClose, isOpen, onEnter],
+    () => (isOpen ? captureKeyboardListeners({
+      onEnter,
+      onEsc: (e: KeyboardEvent) => {
+        if (IS_EXTENSION) {
+          e.preventDefault();
+        }
+
+        onClose();
+      },
+    }) : undefined),
+    [isOpen, onClose, onEnter],
   );
   useEffect(() => (isOpen && modalRef.current ? trapFocus(modalRef.current) : undefined), [isOpen]);
 
-  useEffectWithPrevDeps(
-    ([prevIsOpen]) => {
-      if (isOpen || (!isOpen && prevIsOpen !== undefined)) {
-        dispatchHeavyAnimationEvent(animationDuration + ANIMATION_END_DELAY);
-      }
-    },
-    [animationDuration, isOpen],
+  useLayoutEffect(() => (
+    isOpen ? dispatchHeavyAnimationEvent(animationDuration + ANIMATION_END_DELAY) : undefined
+  ), [animationDuration, isOpen]);
+
+  useEffect(() => {
+    if (!IS_TOUCH_ENV || !isOpen || !isPortrait || !isSlideUp || IS_DELEGATED_BOTTOM_SHEET) {
+      return undefined;
+    }
+
+    return captureEvents(modalRef.current!, {
+      onSwipe: (e, direction) => {
+        if (direction === SwipeDirection.Down && !windowSize.getIsKeyboardVisible() && !getIsSwipeToCloseDisabled()) {
+          onClose();
+          return true;
+        }
+
+        return false;
+      },
+    });
+  }, [isOpen, isPortrait, isSlideUp, onClose]);
+
+  const isDelegatingToNative = useDelegatingBottomSheet(nativeBottomSheetKey, isPortrait, isOpen, onClose);
+  useDelegatedBottomSheet(
+    nativeBottomSheetKey, isOpen, onClose, dialogRef, forceFullNative, noResetFullNativeOnBlur,
   );
 
   if (!shouldRender) {
@@ -124,7 +154,9 @@ function Modal({
     }
 
     return (
-      <div className={buildClassName(styles.header, !hasCloseButton && styles.header_noClose)}>
+      <div
+        className={buildClassName(styles.header, styles.header_wideContent, !hasCloseButton && styles.header_noClose)}
+      >
         <div className={styles.title}>{title}</div>
         {hasCloseButton && (
           <Button isRound className={styles.closeButton} ariaLabel={lang('Close')} onClick={onClose}>
@@ -139,15 +171,17 @@ function Modal({
     styles.modal,
     className,
     transitionClassNames,
-    isSlideUp && isPortrait && styles.slideUp,
+    isSlideUp && styles.slideUpAnimation,
     isCompact && styles.compact,
+    forceBottomSheet && styles.forceBottomSheet,
+    isDelegatingToNative && styles.delegatingToNative,
   );
 
   const backdropFullClass = buildClassName(styles.backdrop, noBackdrop && styles.noBackdrop);
 
   const contentFullClassName = buildClassName(
     styles.content,
-    isSlideUp && styles.contentSlideUp,
+    isCompact && styles.contentCompact,
     'custom-scroll',
     contentClassName,
   );
@@ -157,7 +191,10 @@ function Modal({
       <div ref={modalRef} className={fullClassName} tabIndex={-1} role="dialog">
         <div className={styles.container}>
           <div className={backdropFullClass} onClick={!noBackdropClose ? onClose : undefined} />
-          <div className={buildClassName(styles.dialog, dialogClassName)} ref={dialogRef}>
+          <div
+            className={buildClassName(styles.dialog, dialogClassName)}
+            ref={dialogRef}
+          >
             {renderHeader()}
             <div className={contentFullClassName}>{children}</div>
           </div>
@@ -167,4 +204,4 @@ function Modal({
   );
 }
 
-export default Modal;
+export default freezeWhenClosed(Modal);

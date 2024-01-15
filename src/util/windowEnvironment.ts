@@ -1,9 +1,16 @@
 import type { LangCode } from '../global/types';
 
-import { LANG_LIST } from '../config';
+import {
+  IS_CAPACITOR, IS_EXTENSION, IS_FIREFOX_EXTENSION, LANG_LIST,
+} from '../config';
+import { requestForcedReflow } from '../lib/fasterdom/fasterdom';
 
 export function getPlatform() {
   const { userAgent, platform } = window.navigator;
+
+  if (/Android/.test(userAgent)) return 'Android';
+
+  if (/Linux/.test(platform)) return 'Linux';
 
   const iosPlatforms = ['iPhone', 'iPad', 'iPod'];
   if (
@@ -17,10 +24,6 @@ export function getPlatform() {
 
   const windowsPlatforms = ['Win32', 'Win64', 'Windows', 'WinCE'];
   if (windowsPlatforms.indexOf(platform) !== -1) return 'Windows';
-
-  if (/Android/.test(userAgent)) return 'Android';
-
-  if (/Linux/.test(platform)) return 'Linux';
 
   return undefined;
 }
@@ -40,21 +43,41 @@ export const IS_LINUX = PLATFORM_ENV === 'Linux';
 export const IS_IOS = PLATFORM_ENV === 'iOS';
 export const IS_ANDROID = PLATFORM_ENV === 'Android';
 export const IS_SAFARI = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+export const IS_OPERA = navigator.userAgent.includes(' OPR/');
+export const IS_FIREFOX = navigator.userAgent.includes('Firefox/');
 export const IS_TOUCH_ENV = window.matchMedia('(pointer: coarse)').matches;
-export const IS_EXTENSION = Boolean(window.chrome && chrome.runtime && chrome.runtime.id);
+export const IS_CHROME_EXTENSION = Boolean(window.chrome?.system);
+export const IS_ELECTRON = Boolean(window.electron);
 export const DEFAULT_LANG_CODE = 'en';
 export const USER_AGENT_LANG_CODE = getBrowserLanguage();
 export const DPR = window.devicePixelRatio || 1;
+export const IS_LEDGER_SUPPORTED = !(IS_IOS || IS_ANDROID || IS_FIREFOX_EXTENSION);
+export const IS_LEDGER_EXTENSION_TAB = global.location.hash.startsWith('#detached');
+// Disable biometric auth on electron for now until this issue is fixed:
+// https://github.com/electron/electron/issues/24573
+export const IS_BIOMETRIC_AUTH_SUPPORTED = Boolean(
+  !IS_CAPACITOR && window.navigator.credentials && (!IS_ELECTRON || IS_MAC_OS),
+);
+export const IS_DELEGATED_BOTTOM_SHEET = IS_CAPACITOR && global.location.search.startsWith('?bottom-sheet');
+export const IS_DELEGATING_BOTTOM_SHEET = IS_CAPACITOR && IS_IOS && !IS_DELEGATED_BOTTOM_SHEET;
+export const IS_MULTITAB_SUPPORTED = 'BroadcastChannel' in window && !IS_LEDGER_EXTENSION_TAB;
+export const IS_DAPP_SUPPORTED = IS_EXTENSION || IS_ELECTRON || IS_CAPACITOR;
+export const IS_IOS_APP = IS_IOS && IS_CAPACITOR;
 
-export const SCROLLBAR_WIDTH = (() => {
+export function setScrollbarWidthProperty() {
   const el = document.createElement('div');
-  el.style.cssText = 'overflow:scroll; visibility:hidden; position:absolute;';
+  el.style.cssText = 'overflow-x: hidden; overflow-y: scroll; visibility:hidden; position:absolute;';
   el.classList.add('custom-scroll');
   document.body.appendChild(el);
-  const width = el.offsetWidth - el.clientWidth;
-  el.remove();
 
-  document.documentElement.style.setProperty('--scrollbar-width', `${width}px`);
+  requestForcedReflow(() => {
+    const width = el.offsetWidth - el.clientWidth;
 
-  return width;
-})();
+    return () => {
+      document.documentElement.style.setProperty('--scrollbar-width', `${width}px`);
+      el.remove();
+    };
+  });
+}
+
+export const REM = parseInt(getComputedStyle(document.documentElement).fontSize, 10);

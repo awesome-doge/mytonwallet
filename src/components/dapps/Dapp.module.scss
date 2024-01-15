@@ -6,6 +6,10 @@
   @supports (height: env(safe-area-inset-bottom)) {
     height: calc(35rem + env(safe-area-inset-bottom));
   }
+
+  @media (min-width: 416.01px) {
+    max-width: 24rem;
+  }
 }
 
 .dapp {
@@ -96,7 +100,7 @@
 
   display: block;
 
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.5rem;
   padding: 0 0.5rem;
 
   font-size: 0.8125rem;
@@ -112,14 +116,18 @@
 
   padding: 0.5rem;
 
-  @include adapt-padding-to-scrollbar(0.5rem); /* stylelint-disable-line order/order */
+  @include adapt-padding-to-scrollbar(0.5rem);
 
   background-color: var(--color-background-first);
   border-radius: var(--border-radius-default);
+
+  &_two {
+    grid-template-columns: repeat(6, 1fr);
+  }
 }
 
 .account {
-  cursor: pointer;
+  cursor: var(--custom-cursor, pointer);
 
   position: relative;
 
@@ -137,7 +145,6 @@
   color: var(--color-card-text);
   text-align: left;
 
-  opacity: 0.84;
   background-image: url('../../assets/account_button_bg.jpg'), linear-gradient(125deg, #71A9ED 0, #436CB6 100%);
   background-clip: padding-box, padding-box;
   background-origin: border-box;
@@ -145,12 +152,54 @@
   border: none;
   border-radius: var(--border-radius-tiny);
 
-  transition: opacity 200ms;
+  &::after {
+    content: '';
 
-  &_current {
+    position: absolute;
+    top: 0;
+    left: 0;
+
+    display: block;
+
+    width: 100%;
+    height: 100%;
+
+    opacity: 0;
+    border: none;
+    border-radius: var(--border-radius-tiny);
+
+    /* stylelint-disable-next-line plugin/whole-pixel */
+    box-shadow: 0 0 0 0.8px var(--color-blue),
+          inset 0 0 0 1.4px var(--color-blue),
+          inset 0 0 0 3.2px var(--color-background-first);
+
+    transition: opacity 300ms;
+  }
+
+  &_current::after {
     cursor: default;
 
     opacity: 1;
+  }
+
+  &_disabled {
+    cursor: auto;
+  }
+
+  .accounts_single & {
+    grid-column-start: 2;
+  }
+
+  .accounts_two & {
+    grid-column: span 2;
+
+    &:first-child {
+      grid-column-end: 4;
+    }
+
+    &:nth-child(2) {
+      grid-column-end: 6;
+    }
   }
 
   @media (min-resolution: 1.5dppx) {
@@ -202,30 +251,7 @@
 }
 
 .accountAddress {
-  margin-left: auto;
-  padding-left: 0.25rem;
-
   color: var(--color-card-second-text);
-}
-
-.accountCheckMark {
-  position: absolute;
-  top: 0.3125rem;
-  right: 0.3125rem;
-
-  width: 1rem;
-  height: 1rem;
-
-  border-radius: var(--border-radius-default);
-
-  /* stylelint-disable-next-line plugin/whole-pixel */
-  box-shadow: inset 0 0 0 0.075rem var(--color-card-toggle);
-
-  &_active {
-    background: var(--color-blue) url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjciIGZpbGw9Im5vbmUiPjxwYXRoIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2Utd2lkdGg9IjEuNCIgZD0ibTEgMy41IDIgMkw3IDEiLz48L3N2Zz4=") no-repeat 50% 50%;
-    /* stylelint-disable-next-line plugin/whole-pixel */
-    box-shadow: inset 0 0 0 0.075rem var(--color-white);
-  }
 }
 
 .description {
@@ -268,7 +294,7 @@
   overflow: hidden;
 
   box-sizing: border-box;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
   padding: 0.875rem 0.75rem;
 
   font-size: 1rem;
@@ -291,7 +317,7 @@
 }
 
 .payloadFieldExpand {
-  cursor: pointer;
+  cursor: var(--custom-cursor, pointer);
 
   position: absolute;
   top: 0;
@@ -329,7 +355,7 @@
 }
 
 .transactionRow {
-  cursor: pointer;
+  cursor: var(--custom-cursor, pointer);
 
   display: flex;
   align-items: center;
@@ -471,4 +497,188 @@
   &_sizeSmall {
     margin: -0.375rem auto 1.25rem;
   }
+}
+
+.descriptionContent {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+
+  padding: 1rem;
+
+  background: var(--color-background-first);
+  border-radius: 1rem;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200%;
+  }
+  100% {
+    background-position: -200%;
+  }
+}
+
+@mixin skeleton($color: var(--color-background-first), $edgeColor: var(--color-separator-input-stroke)) {
+  background: linear-gradient(
+    90deg,
+    $edgeColor,
+    $edgeColor,
+    $color,
+    $edgeColor,
+    $edgeColor
+  );
+  background-repeat: no-repeat;
+  background-size: 400% 100%;
+
+  animation: shimmer 2s infinite linear;
+}
+
+.dappInfoSkeleton {
+  display: flex;
+  gap: 0.625rem;
+  align-items: center;
+
+  height: 4rem;
+  padding: 0.875rem 1rem;
+
+  background-color: var(--color-background-first);
+  border-radius: var(--border-radius-default);
+}
+
+.accountWrapperSkeleton {
+  margin-top: 1.25rem;
+}
+
+.dappInfoIconSkeleton {
+  @include skeleton();
+
+  width: 2.25rem;
+  height: 2.25rem;
+
+  background-color: var(--color-separator-input-stroke);
+  border-radius: var(--border-radius-tiny);
+}
+
+.transactionDappIconSkeleton {
+  @include skeleton(
+    var(--color-background-first),
+    #00000000
+  );
+
+  background-color: var(--color-card-button);
+}
+
+.dappInfoTextSkeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.nameSkeleton {
+  @include skeleton();
+
+  width: 4rem;
+  height: 0.75rem;
+
+  background-color: var(--color-separator-input-stroke);
+  border-radius: var(--border-radius-tiny);
+}
+
+.descSkeleton {
+  @include skeleton();
+
+  width: 5rem;
+  height: 0.75rem;
+
+  background-color: var(--color-separator-input-stroke);
+  border-radius: var(--border-radius-tiny);
+}
+
+.nameDappSkeleton {
+  @include skeleton(
+    var(--color-background-first),
+    #00000000
+  );
+
+  height: 0.875rem;
+
+  background-color: var(--color-card-button);
+}
+.descDappSkeleton {
+  @include skeleton(
+    var(--color-background-first),
+    #00000000
+  );
+
+  height: 0.6875rem;
+
+  background-color: var(--color-card-button);
+}
+
+.transactionDirectionLeftSkeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+
+  margin-left: 1rem;
+}
+
+.transactionDirectionRightSkeleton {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-self: center;
+}
+
+.dappInfoDataSkeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.rowContainerSkeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+
+  margin-bottom: 1.25rem;
+}
+
+.rowSkeleton {
+  @include skeleton(
+    var(--color-background-second)
+  );
+
+  width: 100%;
+  height: 3rem;
+
+  background-color: var(--color-separator-input-stroke);
+  border-radius: var(--border-radius-default);
+}
+
+.rowLargeSkeleton {
+  height: 4.25rem;
+}
+
+.rowTextSkeleton {
+  @include skeleton(
+    var(--color-background-second)
+  );
+
+  width: 3.0625rem;
+  height: 0.8125rem;
+  margin-left: 0.5rem;
+
+  background-color: var(--color-separator-input-stroke);
+  border-radius: var(--border-radius-default);
+}
+
+.rowTextLargeSkeleton {
+  width: 6.8125rem;
+}
+
+.skeletonTransitionWrapper {
+  display: flex;
+  flex-direction: column;
 }

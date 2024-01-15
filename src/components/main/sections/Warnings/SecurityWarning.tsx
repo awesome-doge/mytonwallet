@@ -1,11 +1,12 @@
-import React, { memo, useCallback } from '../../../../lib/teact/teact';
+import React, { memo } from '../../../../lib/teact/teact';
+import { getActions, withGlobal } from '../../../../global';
 
 import { MY_TON_WALLET_PROMO_URL } from '../../../../config';
-import { getActions, withGlobal } from '../../../../global';
 import buildClassName from '../../../../util/buildClassName';
 
 import { useDeviceScreen } from '../../../../hooks/useDeviceScreen';
 import useLang from '../../../../hooks/useLang';
+import useLastCallback from '../../../../hooks/useLastCallback';
 import useShowTransition from '../../../../hooks/useShowTransition';
 
 import styles from './Warnings.module.scss';
@@ -26,14 +27,11 @@ function SecurityWarning({ isSecurityWarningHidden }: StateProps) {
     window.open(MY_TON_WALLET_PROMO_URL, '_blank', 'noopener');
   }
 
-  const handleClose = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>) => {
-      e.stopPropagation();
+  const handleClose = useLastCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
 
-      closeSecurityWarning();
-    },
-    [closeSecurityWarning],
-  );
+    closeSecurityWarning();
+  });
 
   if (!shouldRender) {
     return undefined;
@@ -44,9 +42,9 @@ function SecurityWarning({ isSecurityWarningHidden }: StateProps) {
       className={buildClassName(styles.wrapper, isLandscape && styles.wrapper_landscape, transitionClassNames)}
       onClick={handleClick}
     >
-      {lang('Improve wallet security')}
-      <i className={buildClassName(styles.icon, 'icon-chevron-right')} />
-      <p className={styles.text}>{lang('by installing browser extension or native app')}</p>
+      {lang('Consider More Secure Version')}
+      <i className={buildClassName(styles.icon, 'icon-chevron-right')} aria-hidden />
+      <p className={styles.text}>{lang('Install our native app or browser extension.')}</p>
 
       <button type="button" className={styles.closeButton} aria-label={lang('Close')} onClick={handleClose}>
         <i className="icon-close" aria-hidden />

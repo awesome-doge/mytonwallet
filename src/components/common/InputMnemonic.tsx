@@ -1,11 +1,13 @@
-import { wordlists } from 'tonweb-mnemonic';
 import React, {
-  memo, useCallback, useEffect, useState,
+  memo, useEffect, useState,
 } from '../../lib/teact/teact';
 
+import { requestMeasure } from '../../lib/fasterdom/fasterdom';
 import buildClassName from '../../util/buildClassName';
+import { callApi } from '../../api';
 
 import useFlag from '../../hooks/useFlag';
+import useLastCallback from '../../hooks/useLastCallback';
 
 import SuggestionList from '../ui/SuggestionList';
 
@@ -23,7 +25,6 @@ type OwnProps = {
   onInput: (value: string, inputArg?: any) => void;
 };
 
-const { default: mnemonicSuggestions } = wordlists;
 const SUGGESTION_WORDS_COUNT = 7;
 
 function InputMnemonic({
@@ -34,21 +35,29 @@ function InputMnemonic({
   const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState<number>(0);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
+  const [wordlist, setWordlist] = useState<string[]>([]);
   const shouldRenderSuggestions = showSuggestions && value && filteredSuggestions.length > 0;
+
+  useEffect(() => {
+    (async () => {
+      const words = await callApi('getMnemonicWordList');
+      setWordlist(words ?? []);
+    })();
+  }, []);
 
   useEffect(() => {
     if (showSuggestions && value && filteredSuggestions.length === 0) {
       setHasError(true);
-    } else if (!hasFocus && value && !isCorrectMnemonic(value)) {
+    } else if (!hasFocus && value && !isCorrectMnemonic(value, wordlist)) {
       setHasError(true);
     } else {
       setHasError(false);
     }
-  }, [filteredSuggestions.length, hasFocus, showSuggestions, value]);
+  }, [filteredSuggestions.length, hasFocus, showSuggestions, value, wordlist]);
 
   const processSuggestions = (userInput: string) => {
     // Filter our suggestions that don't contain the user's input
-    const unLinked = mnemonicSuggestions.filter(
+    const unLinked = wordlist.filter(
       (suggestion) => suggestion.toLowerCase().startsWith(userInput.toLowerCase()),
     ).slice(0, SUGGESTION_WORDS_COUNT);
 
@@ -62,6 +71,12 @@ function InputMnemonic({
     const userInput = e.target.value;
 
     processSuggestions(userInput);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pastedValue = e.clipboardData.getData('text');
+
+    processSuggestions(pastedValue);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -80,10 +95,12 @@ function InputMnemonic({
       }
 
       if (nextId) {
-        requestAnimationFrame(() => {
-          const nextInput = document.getElementById(nextId);
-          nextInput?.focus();
-          (nextInput as HTMLInputElement)?.select();
+        requestMeasure(() => {
+          requestMeasure(() => {
+            const nextInput = document.getElementById(nextId);
+            nextInput?.focus();
+            (nextInput as HTMLInputElement)?.select();
+          });
         });
       }
     }
@@ -103,19 +120,32 @@ function InputMnemonic({
     }
   };
 
-  const handleClick = useCallback((suggestion: string) => {
+  const handleClick = useLastCallback((suggestion: string) => {
     onInput(suggestion, inputArg);
     setShowSuggestions(false);
     setActiveSuggestionIndex(0);
     setFilteredSuggestions([]);
-  }, [inputArg, onInput]);
+
+    if (nextId) {
+      requestMeasure(() => {
+        requestMeasure(() => {
+          const nextInput = document.getElementById(nextId);
+          nextInput?.focus();
+          (nextInput as HTMLInputElement)?.select();
+        });
+      });
+    }
+  });
 
   const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     processSuggestions(e.target.value);
     markFocus();
   };
 
-  const handleBlur = () => {
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    // Remove focus from the input element to ensure correct blur handling, especially when triggered by window switching
+    e.target.blur();
+
     unmarkFocus();
     requestAnimationFrame(() => {
       setShowSuggestions(false);
@@ -150,6 +180,7 @@ function InputMnemonic({
         onKeyDown={handleKeyDown}
         onFocus={handleFocus}
         onBlur={handleBlur}
+        onPaste={handlePaste}
         value={value}
         tabIndex={0}
       />
@@ -157,8 +188,8 @@ function InputMnemonic({
   );
 }
 
-function isCorrectMnemonic(mnemonic: string) {
-  return mnemonicSuggestions.includes(mnemonic);
+function isCorrectMnemonic(mnemonic: string, wordlist: string[]) {
+  return wordlist.includes(mnemonic);
 }
 
 export default memo(InputMnemonic);

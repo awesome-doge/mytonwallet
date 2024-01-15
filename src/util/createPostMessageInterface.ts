@@ -1,10 +1,10 @@
-import { DETACHED_TAB_URL } from './ledger/tab';
-import { logDebugError } from './logs';
-
 import type {
   ApiUpdate,
   CancellableCallback, OriginMessageData, OriginMessageEvent, WorkerMessageData,
 } from './PostMessageConnector';
+
+import { DETACHED_TAB_URL } from './ledger/tab';
+import { logDebugError } from './logs';
 
 declare const self: WorkerGlobalScope;
 
@@ -51,11 +51,12 @@ export function createExtensionInterface(
      * If the sender's URL includes the DETACHED_TAB_URL, we skip further processing
      * This condition ensures that we don't interact with tabs that have already been closed.
      */
-    if (port.sender?.url?.includes(DETACHED_TAB_URL)) {
+    const url = port.sender?.url;
+    if (url?.includes(DETACHED_TAB_URL)) {
       return;
     }
 
-    const origin = port.sender?.origin;
+    const origin = url ? new URL(url).origin : undefined;
 
     const dAppUpdater = (update: ApiUpdate) => {
       sendToOrigin({
@@ -108,7 +109,7 @@ async function onMessage(
       const { args } = data;
       const promise = typeof api === 'function'
         ? api('init', origin, onUpdate, ...args)
-        : api.init?.(origin, onUpdate, ...args);
+        : api.init?.(onUpdate, ...args);
       await promise;
 
       break;
@@ -136,7 +137,7 @@ async function onMessage(
 
         const response = typeof api === 'function'
           ? await api(name, origin, ...args)
-          : await api[name](origin, ...args);
+          : await api[name](...args);
         const { arrayBuffer } = (typeof response === 'object' && 'arrayBuffer' in response && response) || {};
 
         if (messageId) {
@@ -150,7 +151,7 @@ async function onMessage(
           );
         }
       } catch (err: any) {
-        logDebugError('onMessage:callMethod', err);
+        logDebugError(name, err);
 
         if (messageId) {
           sendToOrigin({

@@ -1,9 +1,10 @@
-import React, { memo, useCallback } from '../../lib/teact/teact';
-
-import { APP_NAME, IS_LEDGER_SUPPORTED, MNEMONIC_COUNT } from '../../config';
+import React, { memo } from '../../lib/teact/teact';
 import { getActions } from '../../global';
+
+import { APP_NAME, MNEMONIC_COUNT } from '../../config';
 import renderText from '../../global/helpers/renderText';
 import buildClassName from '../../util/buildClassName';
+import { IS_LEDGER_SUPPORTED } from '../../util/windowEnvironment';
 
 import useFlag from '../../hooks/useFlag';
 import useLang from '../../hooks/useLang';
@@ -27,10 +28,6 @@ const AuthStart = () => {
   const [isLogoReady, markLogoReady] = useFlag();
   const { transitionClassNames } = useShowTransition(isLogoReady, undefined, undefined, 'slow');
 
-  const handleCreateWallet = useCallback(() => {
-    startCreatingWallet();
-  }, [startCreatingWallet]);
-
   return (
     <div className={buildClassName(styles.container, 'custom-scroll')}>
       <img
@@ -49,20 +46,20 @@ const AuthStart = () => {
         onClick={openAbout}
       >
         {lang('More about MyTonWallet')}
-        <i className="icon-chevron-right" />
+        <i className="icon-chevron-right" aria-hidden />
       </Button>
       <div className={styles.importButtonsBlock}>
         <Button
           isPrimary
           className={styles.btn}
-          onClick={handleCreateWallet}
+          onClick={startCreatingWallet}
         >
           {lang('Create Wallet')}
         </Button>
         <span className={styles.importText}>{lang('Or import from...')}</span>
         <div className={styles.importButtons}>
           <Button
-            className={styles.btn}
+            className={buildClassName(styles.btn, !IS_LEDGER_SUPPORTED && styles.btn_single)}
             onClick={startImportingWallet}
           >
             {lang('%1$d Secret Words', MNEMONIC_COUNT)}

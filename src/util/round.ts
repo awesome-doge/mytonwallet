@@ -1,12 +1,17 @@
-export function round(value: number, precision = 0) {
-  return parseFloat(value.toFixed(precision));
+import type { RoundingMode } from '../lib/big.js';
+
+import { Big } from '../lib/big.js';
+
+export function round(value: number | string, precision = 0, roundingMode: RoundingMode = Big.roundHalfUp) {
+  const bn = new Big(value);
+
+  return bn.round(precision, roundingMode).toNumber();
 }
 
-export function floor(value: number, precision = 0) {
-  if (precision === 0) {
-    return Math.floor(value);
-  }
+export function floor(value: number | string, precision = 0) {
+  return round(value, precision, Big.roundDown);
+}
 
-  const convFactor = 10 ** precision;
-  return round(Math.floor(value * convFactor) / convFactor, precision);
+export function ceil(value: number | string, precision = 0) {
+  return round(value, precision, Big.roundUp);
 }

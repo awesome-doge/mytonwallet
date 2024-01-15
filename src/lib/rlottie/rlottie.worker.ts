@@ -1,7 +1,8 @@
 import { inflate } from 'pako/dist/pako_inflate';
 
-import { createWorkerInterface } from '../../util/createPostMessageInterface';
 import type { CancellableCallback } from '../../util/PostMessageConnector';
+
+import { createWorkerInterface } from '../../util/createPostMessageInterface';
 
 declare const Module: any;
 
@@ -42,7 +43,6 @@ const renderers = new Map<string, {
 }>();
 
 async function init(
-  origin: any,
   key: string,
   tgsUrl: string,
   imgSize: number,
@@ -72,7 +72,6 @@ async function init(
 }
 
 async function changeData(
-  origin: any,
   key: string,
   tgsUrl: string,
   isLowPriority: boolean,
@@ -119,7 +118,7 @@ function calcParams(json: string, isLowPriority: boolean, framesCount: number) {
 }
 
 async function renderFrames(
-  origin: any, key: string, frameIndex: number, onProgress: CancellableCallback,
+  key: string, frameIndex: number, onProgress: CancellableCallback,
 ) {
   if (!rLottieApi) {
     await rLottieApiPromise;
@@ -156,7 +155,7 @@ function applyColor(arr: Uint8ClampedArray, color: [number, number, number]) {
   }
 }
 
-function destroy(origin: any, key: string, isRepeated = false) {
+function destroy(key: string, isRepeated = false) {
   try {
     const renderer = renderers.get(key)!;
     rLottieApi.destroy(renderer.handle);
@@ -164,14 +163,18 @@ function destroy(origin: any, key: string, isRepeated = false) {
   } catch (err) {
     // `destroy` sometimes can be called before the initialization is finished
     if (!isRepeated) {
-      setTimeout(() => destroy(origin, key, true), DESTROY_REPEAT_DELAY);
+      setTimeout(() => destroy(key, true), DESTROY_REPEAT_DELAY);
     }
   }
 }
 
-createWorkerInterface({
-  init,
-  changeData,
-  renderFrames,
-  destroy,
-});
+const api = {
+  'rlottie:init': init,
+  'rlottie:changeData': changeData,
+  'rlottie:renderFrames': renderFrames,
+  'rlottie:destroy': destroy,
+};
+
+createWorkerInterface(api);
+
+export type RLottieApi = typeof api;

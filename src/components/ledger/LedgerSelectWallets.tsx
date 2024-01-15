@@ -1,17 +1,19 @@
 import React, {
-  memo, useCallback, useMemo, useState,
+  memo, useMemo, useState,
 } from '../../lib/teact/teact';
+import { getActions } from '../../global';
 
 import type { Account } from '../../global/types';
 import type { LedgerWalletInfo } from '../../util/ledger/types';
 
-import { getActions } from '../../global';
 import { bigStrToHuman } from '../../global/helpers';
 import buildClassName from '../../util/buildClassName';
 import { formatCurrency } from '../../util/formatNumber';
 import { shortenAddress } from '../../util/shortenAddress';
 
+import useHistoryBack from '../../hooks/useHistoryBack';
 import useLang from '../../hooks/useLang';
+import useLastCallback from '../../hooks/useLastCallback';
 
 import Button from '../ui/Button';
 import ModalHeader from '../ui/ModalHeader';
@@ -19,53 +21,81 @@ import ModalHeader from '../ui/ModalHeader';
 import styles from './LedgerModal.module.scss';
 
 type OwnProps = {
+  isActive?: boolean;
   hardwareWallets?: LedgerWalletInfo[];
   accounts?: Record<string, Account>;
-  onClose: () => void;
+  onCancel?: NoneToVoidFunction;
+  onClose: NoneToVoidFunction;
 };
 
-const ACCOUNT_ADDRESS_SHIFT = 6;
-const ACCOUNT_ADDRESS_SHIFT_END = 6;
+const ACCOUNT_ADDRESS_SHIFT = 4;
 const ACCOUNT_BALANCE_DECIMALS = 3;
 
 function LedgerSelectWallets({
-  onClose,
+  isActive,
   hardwareWallets,
   accounts,
+  onCancel,
+  onClose,
 }: OwnProps) {
   const {
     afterSelectHardwareWallets,
+    loadMoreHardwareWallets,
   } = getActions();
   const lang = useLang();
 
   const [selectedAccountIndices, setSelectedAccountIndices] = useState<number[]>([]);
+  const shouldCloseOnCancel = !onCancel;
 
-  const handleAccountToggle = useCallback((index: number) => {
+  useHistoryBack({
+    isActive,
+    onBack: onCancel ?? onClose,
+  });
+
+  const handleAccountToggle = useLastCallback((index: number) => {
     if (selectedAccountIndices.includes(index)) {
       setSelectedAccountIndices(selectedAccountIndices.filter((id) => id !== index));
     } else {
       setSelectedAccountIndices(selectedAccountIndices.concat([index]));
     }
-  }, [selectedAccountIndices]);
+  });
 
-  const handleAddLedgerWallets = useCallback(() => {
+  const handleAddLedgerWallets = useLastCallback(() => {
     afterSelectHardwareWallets({ hardwareSelectedIndices: selectedAccountIndices });
     onClose();
-  }, [afterSelectHardwareWallets, selectedAccountIndices, onClose]);
+  });
 
   const alreadyConnectedList = useMemo(
     () => Object.values(accounts ?? []).map(({ address }) => address),
     [accounts],
   );
 
+  const handleAddWalletClick = useLastCallback(() => {
+    const list = hardwareWallets ?? [];
+    const lastIndex = list[list.length - 1]?.index ?? 0;
+
+    loadMoreHardwareWallets({ lastIndex });
+  });
+
+  function renderAddAccount() {
+    return (
+      <Button
+        className={styles.addAccountContainer}
+        onClick={handleAddWalletClick}
+      >
+        {lang('Add Wallet')}
+        <i className={buildClassName(styles.addAccountIcon, 'icon-plus')} aria-hidden />
+      </Button>
+    );
+  }
+
   function renderAccount(address: string, balance: string, index: number, isConnected: boolean) {
-    const isActive = isConnected || selectedAccountIndices.includes(index);
+    const isActiveAccount = isConnected || selectedAccountIndices.includes(index);
 
     return (
       <div
         key={address}
-        className={buildClassName(styles.account, isActive && styles.account_current)}
-        aria-label={lang('Switch Account')}
+        className={buildClassName(styles.account, isActiveAccount && styles.account_current)}
         onClick={isConnected ? undefined : () => handleAccountToggle(index)}
       >
         <span className={styles.accountName}>
@@ -74,20 +104,25 @@ function LedgerSelectWallets({
         </span>
         <div className={styles.accountFooter}>
           <span className={styles.accountAddress}>
-            {shortenAddress(address, ACCOUNT_ADDRESS_SHIFT, ACCOUNT_ADDRESS_SHIFT_END)}
+            {shortenAddress(address, ACCOUNT_ADDRESS_SHIFT, ACCOUNT_ADDRESS_SHIFT)}
           </span>
         </div>
 
-        <div className={buildClassName(styles.accountCheckMark, isActive && styles.accountCheckMark_active)} />
+        <div className={buildClassName(styles.accountCheckMark, isActiveAccount && styles.accountCheckMark_active)} />
       </div>
     );
   }
 
   function renderAccounts() {
     const list = hardwareWallets ?? [];
+    const fullClassName = buildClassName(
+      styles.accounts,
+      list.length === 1 && styles.accounts_two,
+      'custom-scroll',
+    );
 
     return (
-      <div className={styles.accounts}>
+      <div className={fullClassName}>
         {list.map(
           ({ address, balance, index }) => renderAccount(
             address,
@@ -96,6 +131,7 @@ function LedgerSelectWallets({
             alreadyConnectedList.includes(address),
           ),
         )}
+        {renderAddAccount()}
       </div>
     );
   }
@@ -111,7 +147,12 @@ function LedgerSelectWallets({
       <div className={styles.container}>
         {renderAccounts()}
         <div className={styles.actionBlock}>
-          <Button onClick={onClose} className={styles.button}>{lang('Cancel')}</Button>
+          <Button
+            className={styles.button}
+            onClick={shouldCloseOnCancel ? onClose : onCancel}
+          >
+            {lang(shouldCloseOnCancel ? 'Cancel' : 'Back')}
+          </Button>
           <Button
             isPrimary
             isDisabled={areAccountsSelected}

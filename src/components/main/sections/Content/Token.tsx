@@ -1,14 +1,16 @@
-import React, { memo, useCallback } from '../../../../lib/teact/teact';
+import React, { memo } from '../../../../lib/teact/teact';
 
+import type { ApiBaseCurrency } from '../../../../api/types';
 import type { UserToken } from '../../../../global/types';
 
-import { DEFAULT_PRICE_CURRENCY, TON_TOKEN_SLUG } from '../../../../config';
+import { TON_TOKEN_SLUG } from '../../../../config';
 import buildClassName from '../../../../util/buildClassName';
 import { calcChangeValue } from '../../../../util/calcChangeValue';
-import { formatCurrency } from '../../../../util/formatNumber';
+import { formatCurrency, getShortCurrencySymbol } from '../../../../util/formatNumber';
 import { round } from '../../../../util/round';
 import { ASSET_LOGO_PATHS } from '../../../ui/helpers/assetLogos';
 
+import useLastCallback from '../../../../hooks/useLastCallback';
 import useShowTransition from '../../../../hooks/useShowTransition';
 
 import AnimatedCounter from '../../../ui/AnimatedCounter';
@@ -23,7 +25,9 @@ interface OwnProps {
   isInvestorView?: boolean;
   classNames?: string;
   apyValue?: number;
+  isActive?: boolean;
   onClick: (slug: string) => void;
+  baseCurrency?: ApiBaseCurrency;
 }
 
 function Token({
@@ -33,7 +37,9 @@ function Token({
   apyValue,
   isInvestorView,
   classNames,
+  isActive,
   onClick,
+  baseCurrency,
 }: OwnProps) {
   const {
     name,
@@ -52,15 +58,17 @@ function Token({
   const changeValue = Math.abs(round(calcChangeValue(value, change), 4));
   const changePercent = Math.abs(round(change * 100, 2));
   const withApy = Boolean(apyValue) && slug === TON_TOKEN_SLUG;
+  const fullClassName = buildClassName(styles.container, isActive && styles.active, classNames);
+  const shortBaseSymbol = getShortCurrencySymbol(baseCurrency);
 
   const {
     shouldRender: shouldRenderApy,
     transitionClassNames: renderApyClassNames,
   } = useShowTransition(withApy);
 
-  const handleClick = useCallback(() => {
+  const handleClick = useLastCallback(() => {
     onClick(slug);
-  }, [onClick, slug]);
+  });
 
   function renderApy() {
     return (
@@ -75,15 +83,23 @@ function Token({
       return undefined;
     }
 
-    return <i className={buildClassName(styles.iconArrow, change > 0 ? 'icon-arrow-up' : 'icon-arrow-down')} />;
+    return (
+      <i
+        className={buildClassName(styles.iconArrow, change > 0 ? 'icon-arrow-up' : 'icon-arrow-down')}
+        aria-hidden
+      />
+    );
   }
 
   function renderInvestorView() {
     return (
-      <Button className={buildClassName(styles.container, classNames)} onClick={handleClick} isSimple>
+      <Button className={fullClassName} onClick={handleClick} isSimple>
         <img src={logoPath} alt={symbol} className={styles.icon} />
         {stakingStatus && (
-          <i className={buildClassName(stakingStatus === 'active' ? 'icon-percent' : 'icon-clock', styles.percent)} />
+          <i
+            className={buildClassName(stakingStatus === 'active' ? 'icon-percent' : 'icon-clock', styles.percent)}
+            aria-hidden
+          />
         )}
         <div className={styles.primaryCell}>
           <div className={buildClassName(styles.name, withApy && styles.name_withApy)}>
@@ -91,19 +107,22 @@ function Token({
             {shouldRenderApy && renderApy()}
           </div>
           <div className={styles.subtitle}>
-            <AnimatedCounter text={formatCurrency(renderedAmount, symbol)} />
-            <i className={styles.dot} />
-            <AnimatedCounter text={formatCurrency(price, DEFAULT_PRICE_CURRENCY)} />
+            <AnimatedCounter
+              text={formatCurrency(renderedAmount, symbol)}
+              key={isInvestorView ? 'investor' : 'default'}
+            />
+            <i className={styles.dot} aria-hidden />
+            <AnimatedCounter text={formatCurrency(price, shortBaseSymbol)} />
           </div>
         </div>
         <div className={styles.secondaryCell}>
           <div className={buildClassName(styles.secondaryValue, stakingStatus && styles.secondaryValue_staked)}>
-            <AnimatedCounter text={formatCurrency(value, DEFAULT_PRICE_CURRENCY)} />
+            <AnimatedCounter text={formatCurrency(value, shortBaseSymbol)} />
           </div>
           <div className={buildClassName(styles.change, changeClassName)}>
             {renderChangeIcon()}<AnimatedCounter text={String(changePercent)} />%
-            <i className={styles.dot} />
-            <AnimatedCounter text={formatCurrency(changeValue, DEFAULT_PRICE_CURRENCY)} />
+            <i className={styles.dot} aria-hidden />
+            <AnimatedCounter text={formatCurrency(changeValue, shortBaseSymbol)} />
           </div>
         </div>
         <i className={buildClassName(styles.iconChevron, 'icon-chevron-right')} aria-hidden />
@@ -116,10 +135,13 @@ function Token({
     const canRenderApy = Boolean(apyValue) && slug === TON_TOKEN_SLUG;
 
     return (
-      <Button className={buildClassName(styles.container, classNames)} onClick={handleClick} isSimple>
+      <Button className={fullClassName} onClick={handleClick} isSimple>
         <img src={logoPath} alt={symbol} className={styles.icon} />
         {stakingStatus && (
-          <i className={buildClassName(stakingStatus === 'active' ? 'icon-percent' : 'icon-clock', styles.percent)} />
+          <i
+            className={buildClassName(stakingStatus === 'active' ? 'icon-percent' : 'icon-clock', styles.percent)}
+            aria-hidden
+          />
         )}
         <div className={styles.primaryCell}>
           <div className={buildClassName(styles.name, canRenderApy && styles.name_withApy)}>
@@ -127,10 +149,10 @@ function Token({
             {canRenderApy && renderApy()}
           </div>
           <div className={styles.subtitle}>
-            <AnimatedCounter text={formatCurrency(price, DEFAULT_PRICE_CURRENCY)} />
+            <AnimatedCounter text={formatCurrency(price, shortBaseSymbol)} />
             {!stakingStatus && (
               <>
-                <i className={styles.dot} />
+                <i className={styles.dot} aria-hidden />
                 <span className={changeClassName}>
                   {renderChangeIcon()}<AnimatedCounter text={String(changePercent)} />%
                 </span>
@@ -140,11 +162,14 @@ function Token({
         </div>
         <div className={styles.secondaryCell}>
           <div className={buildClassName(styles.secondaryValue, stakingStatus && styles.secondaryValue_staked)}>
-            <AnimatedCounter text={formatCurrency(renderedAmount, symbol)} />
+            <AnimatedCounter
+              text={formatCurrency(renderedAmount, symbol)}
+              key={isInvestorView ? 'investor' : 'default'}
+            />
           </div>
           <div className={styles.subtitle}>
             {totalAmount > 0 ? '≈' : ''}&thinsp;
-            <AnimatedCounter text={formatCurrency(totalAmount, DEFAULT_PRICE_CURRENCY)} />
+            <AnimatedCounter text={formatCurrency(totalAmount, shortBaseSymbol)} />
           </div>
         </div>
         <i className={buildClassName(styles.iconChevron, 'icon-chevron-right')} aria-hidden />

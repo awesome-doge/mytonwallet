@@ -1,31 +1,30 @@
 import { StakingState } from '../../types';
 
-import { DEFAULT_DECIMAL_PLACES } from '../../../config';
+import { DEFAULT_DECIMAL_PLACES, IS_CAPACITOR } from '../../../config';
+import { Big } from '../../../lib/big.js';
+import { vibrateOnSuccess } from '../../../util/capacitor';
+import { IS_DELEGATED_BOTTOM_SHEET } from '../../../util/windowEnvironment';
 import { callApi } from '../../../api';
 import { humanToBigStr } from '../../helpers';
 import { addActionHandler, getGlobal, setGlobal } from '../../index';
 import {
+  clearIsPinAccepted,
   clearStaking,
+  setIsPinAccepted,
   updateAccountState,
-  updatePoolState,
   updateStaking,
 } from '../../reducers';
+import { selectAccountState } from '../../selectors';
 
-addActionHandler('fetchStakingState', async (global) => {
-  const { currentAccountId } = global;
+import { callActionInMain } from '../../../hooks/useDelegatedBottomSheet';
 
-  const stakingState = await callApi('getStakingState', currentAccountId!);
-  if (!stakingState) {
+addActionHandler('startStaking', (global, actions, payload) => {
+  const isOpen = global.staking.state !== StakingState.None;
+  if (IS_DELEGATED_BOTTOM_SHEET && !isOpen) {
+    callActionInMain('startStaking', payload);
     return;
   }
 
-  setGlobal(updateAccountState(getGlobal(), currentAccountId!, {
-    stakingBalance: stakingState.amount + stakingState.pendingDepositAmount,
-    isUnstakeRequested: stakingState.isUnstakeRequested,
-  }, true));
-});
-
-addActionHandler('startStaking', (global, actions, payload) => {
   const { isUnstaking } = payload || {};
 
   setGlobal(updateStaking(global, {
@@ -47,7 +46,7 @@ addActionHandler('fetchStakingFee', async (global, actions, payload) => {
     currentAccountId,
     humanToBigStr(amount!, DEFAULT_DECIMAL_PLACES),
   );
-  if (!result) {
+  if (!result || 'error' in result) {
     return;
   }
 
@@ -59,7 +58,8 @@ addActionHandler('fetchStakingFee', async (global, actions, payload) => {
 });
 
 addActionHandler('submitStakingInitial', async (global, actions, payload) => {
-  const { amount, isUnstaking } = payload || {};
+  const { isUnstaking } = payload || {};
+  let { amount } = payload ?? {};
   const { currentAccountId } = global;
 
   if (!currentAccountId) {
@@ -69,12 +69,13 @@ addActionHandler('submitStakingInitial', async (global, actions, payload) => {
   setGlobal(updateStaking(global, { isLoading: true, error: undefined }));
 
   if (isUnstaking) {
-    const result = await callApi('checkUnstakeDraft', currentAccountId);
+    amount = selectAccountState(global, currentAccountId)!.staking!.balance;
+    const result = await callApi('checkUnstakeDraft', currentAccountId, humanToBigStr(amount));
     global = getGlobal();
     global = updateStaking(global, { isLoading: false });
 
     if (result) {
-      if (result.error) {
+      if ('error' in result) {
         global = updateStaking(global, { error: result.error });
       } else {
         global = updateStaking(global, {
@@ -82,6 +83,8 @@ addActionHandler('submitStakingInitial', async (global, actions, payload) => {
           fee: result.fee,
           amount,
           error: undefined,
+          type: result.type,
+          tokenAmount: result.tokenAmount,
         });
       }
     }
@@ -95,7 +98,7 @@ addActionHandler('submitStakingInitial', async (global, actions, payload) => {
     global = updateStaking(global, { isLoading: false });
 
     if (result) {
-      if (result.error) {
+      if ('error' in result) {
         global = updateStaking(global, { error: result.error });
       } else {
         global = updateStaking(global, {
@@ -103,6 +106,7 @@ addActionHandler('submitStakingInitial', async (global, actions, payload) => {
           fee: result.fee,
           amount,
           error: undefined,
+          type: result.type,
         });
       }
     }
@@ -113,34 +117,72 @@ addActionHandler('submitStakingInitial', async (global, actions, payload) => {
 
 addActionHandler('submitStakingPassword', async (global, actions, payload) => {
   const { password, isUnstaking } = payload;
-  const { amount, fee } = global.staking;
+  const {
+    fee,
+    type,
+    amount,
+    tokenAmount,
+  } = global.staking;
+  const { currentAccountId } = global;
 
   if (!(await callApi('verifyPassword', password))) {
-    setGlobal(updateStaking(getGlobal(), { error: 'Wrong password, please try again' }));
+    setGlobal(updateStaking(getGlobal(), { error: 'Wrong password, please try again.' }));
 
     return;
   }
 
-  setGlobal(updateStaking(getGlobal(), {
+  global = getGlobal();
+
+  if (IS_CAPACITOR) {
+    global = setIsPinAccepted(global);
+  }
+
+  global = updateStaking(global, {
     isLoading: true,
     error: undefined,
-  }));
+  });
+  setGlobal(global);
+
+  if (IS_CAPACITOR) {
+    await vibrateOnSuccess(true);
+  }
+
+  global = getGlobal();
 
   if (isUnstaking) {
+    const { instantAvailable } = global.stakingInfo.liquid ?? {};
+    const stakingBalance = selectAccountState(global, currentAccountId!)!.staking!.balance;
+
+    const unstakeAmount = type === 'nominators' ? humanToBigStr(stakingBalance) : tokenAmount!;
     const result = await callApi(
       'submitUnstake',
       global.currentAccountId!,
       password,
+      type!,
+      unstakeAmount,
       fee,
     );
 
+    const isLongUnstakeRequested = type === 'liquid'
+      ? Boolean(instantAvailable) && Big(instantAvailable).lt(stakingBalance)
+      : true;
+
     global = getGlobal();
+    global = updateAccountState(global, currentAccountId!, { isLongUnstakeRequested });
     global = updateStaking(global, { isLoading: false });
+    setGlobal(global);
+
     if (!result) {
       actions.showDialog({
         message: 'Unstaking was unsuccessful. Try again later',
       });
+      global = getGlobal();
+
+      if (IS_CAPACITOR) {
+        global = clearIsPinAccepted(global);
+      }
     } else {
+      global = getGlobal();
       global = updateStaking(global, { state: StakingState.UnstakeComplete });
     }
   } else {
@@ -149,16 +191,25 @@ addActionHandler('submitStakingPassword', async (global, actions, payload) => {
       global.currentAccountId!,
       password,
       humanToBigStr(amount!, DEFAULT_DECIMAL_PLACES),
+      type!,
       fee,
     );
 
     global = getGlobal();
     global = updateStaking(global, { isLoading: false });
+    setGlobal(global);
+
     if (!result) {
       actions.showDialog({
         message: 'Staking was unsuccessful. Try again later',
       });
+
+      global = getGlobal();
+      if (IS_CAPACITOR) {
+        global = clearIsPinAccepted(global);
+      }
     } else {
+      global = getGlobal();
       global = updateStaking(global, { state: StakingState.StakeComplete });
     }
   }
@@ -171,7 +222,12 @@ addActionHandler('clearStakingError', (global) => {
 });
 
 addActionHandler('cancelStaking', (global) => {
-  setGlobal(clearStaking(global));
+  if (IS_CAPACITOR) {
+    global = clearIsPinAccepted(global);
+  }
+
+  global = clearStaking(global);
+  setGlobal(global);
 });
 
 addActionHandler('setStakingScreen', (global, actions, payload) => {
@@ -180,15 +236,30 @@ addActionHandler('setStakingScreen', (global, actions, payload) => {
   setGlobal(updateStaking(global, { state }));
 });
 
-addActionHandler('fetchBackendStakingState', async (global) => {
-  const result = await callApi('getBackendStakingState', global.currentAccountId!);
+addActionHandler('fetchStakingHistory', async (global, actions, payload) => {
+  const { limit, offset } = payload ?? {};
+  const stakingHistory = await callApi('getStakingHistory', global.currentAccountId!, limit, offset);
 
-  if (!result) {
+  if (!stakingHistory) {
     return;
   }
 
   global = getGlobal();
-  global = updateAccountState(global, global.currentAccountId!, { stakingHistory: result }, true);
-  global = updatePoolState(global, result.poolState, true);
+  global = updateAccountState(global, global.currentAccountId!, { stakingHistory }, true);
+  setGlobal(global);
+});
+
+addActionHandler('openStakingInfo', (global) => {
+  if (IS_DELEGATED_BOTTOM_SHEET) {
+    callActionInMain('openStakingInfo');
+    return;
+  }
+
+  global = { ...global, isStakingInfoModalOpen: true };
+  setGlobal(global);
+});
+
+addActionHandler('closeStakingInfo', (global) => {
+  global = { ...global, isStakingInfoModalOpen: undefined };
   setGlobal(global);
 });

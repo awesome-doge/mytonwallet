@@ -1,19 +1,23 @@
-import React, { memo, useCallback } from '../../lib/teact/teact';
+import React, { memo } from '../../lib/teact/teact';
 
 import buildClassName from '../../util/buildClassName';
 
 import useFlag from '../../hooks/useFlag';
+import useLastCallback from '../../hooks/useLastCallback';
 import useMediaTransition from '../../hooks/useMediaTransition';
 
 import styles from './Emoji.module.scss';
 
+export type EmojiIcon = '🥷' | '🦄' | '⚠️';
+
 interface OwnProps {
-  from: '🥷' | '🦄';
+  from: EmojiIcon;
 }
 
 const PATH_BY_EMOJI = {
   '🥷': '1f977',
   '🦄': '1f984',
+  '⚠️': '26a0',
 };
 
 const loadedImages = new Set();
@@ -24,10 +28,10 @@ function Emoji({ from }: OwnProps) {
   const [isLoaded, markLoaded] = useFlag(loadedImages.has(src));
   const transitionClassNames = useMediaTransition(isLoaded);
 
-  const handleLoad = useCallback(() => {
+  const handleLoad = useLastCallback(() => {
     markLoaded();
     loadedImages.add(src);
-  }, [markLoaded, src]);
+  });
 
   return (
     <img

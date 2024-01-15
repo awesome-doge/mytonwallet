@@ -1,10 +1,10 @@
-import React, { memo, useCallback } from '../../../lib/teact/teact';
+import React, { memo } from '../../../lib/teact/teact';
+import { getActions } from '../../../global';
 
 import type { ApiDapp } from '../../../api/types';
 
-import { getActions } from '../../../global';
-
 import useLang from '../../../hooks/useLang';
+import useLastCallback from '../../../hooks/useLastCallback';
 
 import Button from '../../ui/Button';
 import Modal from '../../ui/Modal';
@@ -25,15 +25,15 @@ function DisconnectDappModal({ isOpen, dapp, onClose }: OwnProps) {
 
   const lang = useLang();
 
-  const handleDeleteAllDapps = useCallback(() => {
+  const handleDeleteAllDapps = useLastCallback(() => {
     void deleteAllDapps();
     onClose();
-  }, [deleteAllDapps, onClose]);
+  });
 
-  const handleDeleteDapp = useCallback(() => {
+  const handleDeleteDapp = useLastCallback(() => {
     void deleteDapp({ origin: dapp!.origin });
     onClose();
-  }, [deleteDapp, dapp, onClose]);
+  });
 
   const title = dapp ? lang('Disconnect Dapp') : lang('Disconnect Dapps');
   const description = dapp

@@ -1,13 +1,12 @@
-import type { ApiToken } from '../../api/types';
+import type { ApiSwapAsset, ApiToken } from '../../api/types';
 import type { Account, AccountState, GlobalState } from '../types';
 
 import { TON_TOKEN_SLUG } from '../../config';
-import { genRelatedAccountIds } from '../../util/account';
 import isPartialDeepEqual from '../../util/isPartialDeepEqual';
-import { fromKeyValueArrays } from '../../util/iteratees';
 import {
   selectAccount,
   selectAccountState,
+  selectCurrentNetwork,
   selectNetworkAccounts,
 } from '../selectors';
 
@@ -34,10 +33,26 @@ export function updateAccounts(
   };
 }
 
+export function setIsPinAccepted(global: GlobalState): GlobalState {
+  return {
+    ...global,
+    isPinAccepted: true,
+  };
+}
+
+export function clearIsPinAccepted(global: GlobalState): GlobalState {
+  return {
+    ...global,
+    isPinAccepted: undefined,
+  };
+}
+
 export function createAccount(global: GlobalState, accountId: string, address: string, partial?: Partial<Account>) {
   if (!partial?.title) {
+    const network = selectCurrentNetwork(global);
     const accounts = selectNetworkAccounts(global) || {};
-    partial = { ...partial, title: `Wallet ${Object.keys(accounts).length + 1}` };
+    const titlePrefix = network === 'mainnet' ? 'Wallet' : 'Testnet Wallet';
+    partial = { ...partial, title: `${titlePrefix} ${Object.keys(accounts).length + 1}` };
   }
 
   return updateAccount(global, accountId, { ...partial, address });
@@ -48,17 +63,16 @@ export function updateAccount(
   accountId: string,
   partial: Partial<Account>,
 ) {
-  let account = selectAccount(global, accountId);
-  account = { ...account, ...partial } as Account;
-
-  const newAccountsById = fromKeyValueArrays(genRelatedAccountIds(accountId), account);
   return {
     ...global,
     accounts: {
       ...global.accounts,
       byId: {
         ...global.accounts?.byId,
-        ...newAccountsById,
+        [accountId]: {
+          ...selectAccount(global, accountId),
+          ...partial,
+        } as Account,
       },
     },
   };
@@ -87,6 +101,31 @@ export function updateBalance(
   });
 }
 
+export function updateBalances(
+  global: GlobalState,
+  accountId: string,
+  balancesToUpdate: Record<string, string>,
+): GlobalState {
+  if (Object.keys(balancesToUpdate).length === 0) {
+    return global;
+  }
+
+  const { balances } = selectAccountState(global, accountId) || {};
+
+  const updatedBalancesBySlug = { ...(balances?.bySlug || {}) };
+
+  for (const [slug, balance] of Object.entries(balancesToUpdate)) {
+    updatedBalancesBySlug[slug] = balance;
+  }
+
+  return updateAccountState(global, accountId, {
+    balances: {
+      ...balances,
+      bySlug: updatedBalancesBySlug,
+    },
+  });
+}
+
 export function updateSendingLoading(global: GlobalState, isLoading: boolean): GlobalState {
   return {
     ...global,
@@ -104,8 +143,15 @@ export function updateTokens(
 ): GlobalState {
   const currentTokens = global.tokenInfo?.bySlug;
 
-  if (currentTokens?.[TON_TOKEN_SLUG] && !partial[TON_TOKEN_SLUG].quote.price) {
-    return global;
+  // If the backend does not work, then we won't delete the old prices
+  if (!partial[TON_TOKEN_SLUG].quote.price) {
+    partial = Object.values(partial).reduce((result, token) => {
+      result[token.slug] = {
+        ...token,
+        quote: currentTokens?.[token.slug]?.quote ?? token.quote,
+      };
+      return result;
+    }, {} as Record<string, ApiToken>);
   }
 
   if (withDeepCompare && currentTokens && isPartialDeepEqual(currentTokens, partial)) {
@@ -124,15 +170,26 @@ export function updateTokens(
   };
 }
 
-export function updateCurrentAccountState(global: GlobalState, partial: Partial<AccountState>): GlobalState {
-  return updateAccountState(global, global.currentAccountId!, partial);
+export function updateSwapTokens(
+  global: GlobalState,
+  partial: Record<string, ApiSwapAsset>,
+): GlobalState {
+  const currentTokens = global.swapTokenInfo?.bySlug;
+
+  return {
+    ...global,
+    swapTokenInfo: {
+      ...global.swapTokenInfo,
+      bySlug: {
+        ...currentTokens,
+        ...partial,
+      },
+    },
+  };
 }
 
-export function updateCurrentAccountsState(global: GlobalState, partial: Partial<AccountState>): GlobalState {
-  for (const accountId of genRelatedAccountIds(global.currentAccountId!)) {
-    global = updateAccountState(global, accountId, partial);
-  }
-  return global;
+export function updateCurrentAccountState(global: GlobalState, partial: Partial<AccountState>): GlobalState {
+  return updateAccountState(global, global.currentAccountId!, partial);
 }
 
 export function updateAccountState(
@@ -164,4 +221,34 @@ export function updateHardware(global: GlobalState, hardwareUpdate: Partial<Glob
       ...hardwareUpdate,
     },
   } as GlobalState;
+}
+
+export function updateSettings(global: GlobalState, settingsUpdate: Partial<GlobalState['settings']>) {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      ...settingsUpdate,
+    },
+  } as GlobalState;
+}
+
+export function updateBiometrics(global: GlobalState, biometricsUpdate: Partial<GlobalState['biometrics']>) {
+  return {
+    ...global,
+    biometrics: {
+      ...global.biometrics,
+      ...biometricsUpdate,
+    },
+  };
+}
+
+export function updateRestrictions(global: GlobalState, partial: Partial<GlobalState['restrictions']>) {
+  return {
+    ...global,
+    restrictions: {
+      ...global.restrictions,
+      ...partial,
+    },
+  };
 }

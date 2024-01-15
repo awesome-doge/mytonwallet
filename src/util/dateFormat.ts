@@ -1,6 +1,6 @@
 import type { LangCode } from '../global/types';
-
 import type { LangFn } from './langProvider';
+
 import withCache from './withCache';
 
 const formatDayToStringWithCache = withCache((
@@ -19,7 +19,7 @@ const formatDayToStringWithCache = withCache((
       day: noDay ? undefined : 'numeric',
       hour: withTime ? 'numeric' : undefined,
       minute: withTime ? 'numeric' : undefined,
-      hour12: false,
+      hourCycle: 'h23',
     },
   );
 });

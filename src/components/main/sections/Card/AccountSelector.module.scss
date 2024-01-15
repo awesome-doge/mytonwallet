@@ -1,16 +1,16 @@
 @import "../../../../styles/mixins";
 
-.addressTitle {
-  cursor: pointer;
+.accountTitle {
+  cursor: var(--custom-cursor, pointer);
 
   position: absolute;
-  top: 1.125rem;
-  left: 1rem;
+  top: 0.375rem;
+  left: 0.25rem;
 
   overflow: hidden;
 
   max-width: calc(100% - 4rem);
-  padding-right: 0.75rem;
+  padding: 0.75rem;
 
   font-size: 1.0625rem;
   font-weight: 700;
@@ -56,10 +56,21 @@
   :global(html.animation-level-0) & {
     transition: none !important;
   }
+
+  @media (hover: hover) {
+    top: 1.125rem;
+    left: 1rem;
+
+    padding: 0 0.75rem 0 0;
+  }
+}
+
+.accountTitleShort {
+  max-width: calc(100% - 6rem);
 }
 
 .menuButton {
-  cursor: pointer;
+  cursor: var(--custom-cursor, pointer);
 
   position: absolute;
   top: 0.75rem;
@@ -78,15 +89,15 @@
   &:focus,
   &:hover {
     color: var(--color-card-text);
-
-    &::after {
-      opacity: 0.7;
-    }
   }
 }
 
+.menuButtonFirst {
+  right: 2.75rem;
+}
+
 .edit {
-  cursor: pointer;
+  cursor: var(--custom-cursor, pointer);
 
   position: absolute;
   top: 0;
@@ -175,16 +186,29 @@
 
 .container {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   top: 2.75rem;
   right: 0.5rem;
   left: 0.5rem;
+
+  max-width: 19.625rem;
+
+  &:global(.sticky-card-account-selector) {
+    top: 3.125rem;
+    right: -0.5rem;
+    left: -0.5rem;
+
+    @supports (top: env(safe-area-inset-top)) {
+      top: max(2.0625rem, calc(3.125rem - env(safe-area-inset-top)));
+    }
+  }
 
   &:global(.shown) .dialog {
     transform: translateY(-1rem);
 
     opacity: 0;
   }
+
   &:global(.shown.open) .dialog {
     transform: translateY(0);
 
@@ -197,8 +221,9 @@
   z-index: 1;
   top: 0;
   right: 0;
-  bottom: 0;
   left: 0;
+
+  height: 100vh;
 }
 
 .dialog {
@@ -214,8 +239,7 @@
   max-height: 16rem;
   padding: 0.5rem !important;
 
-  @include adapt-padding-to-scrollbar(0.5rem, !important); /* stylelint-disable-line order/order */
-
+  @include adapt-padding-to-scrollbar(0.5rem, !important);
 
   background-color: var(--color-background-drop-down);
   border-radius: var(--border-radius-default);
@@ -229,7 +253,7 @@
     max-width: calc(66% + 1rem);
   }
 
-  &:global(.closing) {
+  .container:global(.closing) > & {
     transition: var(--dropdown-transition-backwards) !important;
   }
 
@@ -243,7 +267,7 @@
 }
 
 .button {
-  cursor: pointer;
+  cursor: var(--custom-cursor, pointer);
 
   position: relative;
 
@@ -329,7 +353,6 @@
   font-size: 0.75rem !important;
   line-height: 1 !important;
   color: var(--color-add-wallet-text) !important;
-  text-transform: none !important;
 
   background-color: var(--color-add-wallet-background) !important;
   border-radius: 0.5rem !important;

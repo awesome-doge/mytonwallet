@@ -1,7 +1,10 @@
-import type { RefObject } from 'react';
+import type {
+  ChangeEvent, FormEvent, KeyboardEvent, RefObject,
+} from 'react';
 import type { TeactNode } from '../../lib/teact/teact';
 import React, { memo, useState } from '../../lib/teact/teact';
 
+import { requestMutation } from '../../lib/fasterdom/fasterdom';
 import buildClassName from '../../util/buildClassName';
 
 import useLang from '../../hooks/useLang';
@@ -9,34 +12,39 @@ import useLang from '../../hooks/useLang';
 import styles from './Input.module.scss';
 
 type OwnProps = {
-  ref?: RefObject<HTMLInputElement>;
+  ref?: RefObject<HTMLInputElement | HTMLTextAreaElement>;
   id?: string;
   type?: 'text' | 'password';
-  labelText?: string;
+  label?: TeactNode;
   placeholder?: string;
   value?: string | number;
+  inputMode?: 'numeric' | 'text' | 'search';
   maxLength?: number;
   isRequired?: boolean;
   isControlled?: boolean;
+  isMultiline?: boolean;
   hasError?: boolean;
   error?: string;
   className?: string;
+  wrapperClassName?: string;
   autoComplete?: string;
   inputArg?: any;
-  children?: TeactNode | TeactNode[];
+  children?: TeactNode;
   onInput: (value: string, inputArg?: any) => void;
-  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  onFocus?: NoneToVoidFunction;
-  onBlur?: NoneToVoidFunction;
+  onKeyDown?: (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+  onFocus?: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+  onBlur?: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
 };
 
 function Input({
   ref,
   id,
-  labelText,
+  label,
   placeholder,
+  inputMode,
   isRequired,
   isControlled,
+  isMultiline,
   hasError,
   type = 'text',
   error,
@@ -44,6 +52,7 @@ function Input({
   maxLength,
   inputArg,
   className,
+  wrapperClassName,
   autoComplete,
   children,
   onInput,
@@ -54,12 +63,22 @@ function Input({
   const lang = useLang();
   const [isPasswordVisible, setIsPasswordVisible] = useState<boolean>(false);
 
-  const handleInput = (e: React.FormEvent<HTMLInputElement>) => {
+  const handleInput = (e: FormEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     onInput(e.currentTarget.value, inputArg);
   };
 
   const handleTogglePasswordVisibility = () => {
     setIsPasswordVisible(!isPasswordVisible);
+  };
+
+  const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    const { currentTarget } = e;
+    const { scrollHeight } = currentTarget;
+
+    requestMutation(() => {
+      currentTarget.style.height = '0';
+      currentTarget.style.height = `${scrollHeight}px`;
+    });
   };
 
   const finalType = type === 'text' || isPasswordVisible ? 'text' : 'password';
@@ -76,44 +95,65 @@ function Input({
   );
 
   return (
-    <div className={styles.wrapper}>
-      {error && labelText && (
+    <div className={buildClassName(styles.wrapper, wrapperClassName)}>
+      {error && !!label && (
         <label className={buildClassName(styles.label, styles.label_error, styles.error)} htmlFor={id}>{error}</label>
       )}
-      {labelText && (
+      {!!label && (
         <label className={labelFullClass} htmlFor={id}>
-          {labelText}
+          {label}
         </label>
       )}
-      <input
-        ref={ref}
-        id={id}
-        className={inputFullClass}
-        type={finalType}
-        value={value}
-        maxLength={maxLength}
-        autoComplete={autoComplete}
-        onInput={handleInput}
-        onKeyDown={onKeyDown}
-        onFocus={onFocus}
-        onBlur={onBlur}
-        tabIndex={0}
-        required={isRequired}
-        placeholder={placeholder}
-        teactExperimentControlled={isControlled}
-      />
+      {isMultiline ? (
+        <textarea
+          ref={ref as RefObject<HTMLTextAreaElement>}
+          id={id}
+          className={inputFullClass}
+          value={value}
+          maxLength={maxLength}
+          autoComplete={autoComplete}
+          onInput={handleInput}
+          onChange={handleChange}
+          onKeyDown={onKeyDown}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          tabIndex={0}
+          required={isRequired}
+          placeholder={placeholder}
+          teactExperimentControlled={isControlled}
+        />
+      ) : (
+        <input
+          ref={ref as RefObject<HTMLInputElement>}
+          id={id}
+          className={inputFullClass}
+          type={finalType}
+          value={value}
+          inputMode={inputMode}
+          maxLength={maxLength}
+          autoComplete={autoComplete}
+          onInput={handleInput}
+          onKeyDown={onKeyDown}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          tabIndex={0}
+          required={isRequired}
+          placeholder={placeholder}
+          teactExperimentControlled={isControlled}
+        />
+      )}
       {type === 'password' && (
         <button
-          className={buildClassName(styles.visibilityToggle, labelText && styles.visibilityToggle_push)}
+          className={buildClassName(styles.visibilityToggle, label && styles.visibilityToggle_push)}
           type="button"
           onClick={handleTogglePasswordVisibility}
           aria-label={lang('Change password visibility')}
           tabIndex={-1}
         >
-          <i className={isPasswordVisible ? 'icon-eye' : 'icon-eye-closed'} />
+          <i className={isPasswordVisible ? 'icon-eye' : 'icon-eye-closed'} aria-hidden />
         </button>
       )}
-      {error && !labelText && (
+      {error && !label && (
         <label className={buildClassName(styles.label, styles.label_errorBottom, styles.error)} htmlFor={id}>
           {error}
         </label>

@@ -2,6 +2,10 @@ const REPO = 'mytonwalletorg/mytonwallet';
 const LATEST_RELEASE_API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 const LATEST_RELEASE_WEB_URL = `https://github.com/${REPO}/releases/latest`;
 const WEB_APP_URL = '/';
+const MOBILE_URLS = {
+  ios: 'https://apps.apple.com/ru/app/mytonwallet-anyway-ton-wallet/id6464677844',
+  android: 'https://play.google.com/store/apps/details?id=org.mytonwallet.app',
+};
 
 const platform = getPlatform();
 const currentPage = location.href.includes('mac.html')
@@ -18,12 +22,24 @@ const packagesPromise = fetch(LATEST_RELEASE_API_URL)
       name,
       browser_download_url,
     }) => {
+      let key;
+
       if (name.endsWith('.exe')) {
-        acc['win'] = browser_download_url;
+        key = 'win';
       } else if (name.endsWith('.AppImage')) {
-        acc['linux'] = browser_download_url;
+        key = 'linux';
       } else if (name.endsWith('.dmg')) {
-        acc[`mac-${name.includes('arm') ? 'arm' : 'x64'}`] = browser_download_url;
+        key = `mac-${name.includes('arm') ? 'arm' : 'x64'}`;
+      } else if (name.endsWith('.exe.asc')) {
+        key = 'win-signature';
+      } else if (name.endsWith('.AppImage.asc')) {
+        key = 'linux-signature';
+      } else if (name.endsWith('.dmg.asc')) {
+        key = `mac-${name.includes('arm') ? 'arm' : 'x64'}-signature`;
+      }
+
+      if (key) {
+        acc[key] = browser_download_url;
       }
 
       return acc;
@@ -36,7 +52,7 @@ const packagesPromise = fetch(LATEST_RELEASE_API_URL)
   });
 
 (function init() {
-  if (platform === 'Windows' || platform === 'Linux') {
+  if (['Windows', 'Linux', 'iOS', 'Android'].includes(platform)) {
     if (currentPage === 'index') {
       setupDownloadButton();
       setupVersion();
@@ -89,9 +105,19 @@ function setupDownloadButton() {
 
 function setupVersion() {
   document.addEventListener('DOMContentLoaded', () => {
-    packagesPromise.then((packages) => {
+    Promise.all([packagesPromise, areSignaturesPresent()]).then(([packages, areSignaturesPresentResult]) => {
       const versionEl = document.querySelector('.version');
-      versionEl.innerHTML = `v. ${packages.$version} · `;
+
+      let html = `v. ${packages.$version}`;
+      if (['Windows', 'macOS', 'Linux'].includes(platform)) {
+        const signaturesHtml = areSignaturesPresentResult
+          ? '<a href="javascript:redirectToFullList();">Signatures</a>'
+          : '<span class="missing-signatures">Missing signatures!</span>';
+
+        html += ` · ${signaturesHtml}`;
+      }
+
+      versionEl.innerHTML = html;
     });
   });
 }
@@ -112,6 +138,10 @@ function redirectToFullList() {
   location.href = LATEST_RELEASE_WEB_URL;
 }
 
+function redirectToStore(platform) {
+  location.href = MOBILE_URLS[platform.toLowerCase()];
+}
+
 function downloadDefault() {
   if (platform === 'Windows') {
     download('win');
@@ -119,13 +149,23 @@ function downloadDefault() {
     download('linux');
   } else if (platform === 'macOS') {
     redirectToMac();
+  } else if (platform === 'iOS' || platform === 'Android') {
+    redirectToStore(platform);
   } else {
     redirectToUnsupported();
   }
 }
 
-function download(platform) {
+function download(platformKey) {
   packagesPromise.then((packages) => {
-    location.href = packages[platform];
+    location.href = packages[platformKey];
+  });
+}
+
+function areSignaturesPresent() {
+  return packagesPromise.then((packages) => {
+    if (platform === 'Windows') return !!packages['win-signature'];
+    if (platform === 'Linux') return !!packages['linux-signature'];
+    if (platform === 'macOS') return !!(packages['mac-arm-signature'] && packages['mac-x64-signature']);
   });
 }

@@ -6,6 +6,10 @@
   @supports (height: env(safe-area-inset-bottom)) {
     height: calc(35rem + env(safe-area-inset-bottom));
   }
+
+  @media (min-width: 416.01px) {
+    max-width: 24rem;
+  }
 }
 
 .slide {
@@ -144,21 +148,27 @@
 }
 
 .accounts {
-  overflow-y: auto;
+  overflow-y: scroll;
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 0.5rem;
 
+  max-height: 13.25rem;
+  margin-bottom: 2rem;
   padding: 0.5rem;
-
-  @include adapt-padding-to-scrollbar(0.5rem); /* stylelint-disable-line order/order */
 
   background-color: var(--color-background-first);
   border-radius: var(--border-radius-default);
+
+  @include adapt-padding-to-scrollbar(0.5rem, !important);
+
+  &_two {
+    grid-template-columns: repeat(6, 1fr);
+  }
 }
 
 .account {
-  cursor: pointer;
+  cursor: var(--custom-cursor, pointer);
 
   position: relative;
 
@@ -192,9 +202,56 @@
     opacity: 1;
   }
 
+  .accounts_two & {
+    grid-column: span 2;
+
+    &:first-child {
+      grid-column-end: 4;
+    }
+
+    &:nth-child(2) {
+      grid-column-end: 6;
+    }
+  }
+
   @media (min-resolution: 1.5dppx) {
     background-image: url('../../assets/account_button_bg@2x.jpg'), linear-gradient(125deg, #71A9ED 0, #436CB6 100%);
   }
+}
+
+.addAccountContainer {
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+
+  width: 100% !important;
+  min-width: auto !important;
+  max-width: 100% !important;
+  height: 3.75rem !important;
+  padding: 0.5rem !important;
+
+  font-size: 0.75rem !important;
+  line-height: 1 !important;
+  color: var(--color-add-wallet-text) !important;
+
+  background-color: var(--color-add-wallet-background) !important;
+  border-radius: 0.5rem !important;
+
+  &:focus,
+  &:hover {
+    color: var(--color-add-wallet-text-hover) !important;
+
+    background-color: var(--color-add-wallet-background-hover) !important;
+  }
+
+  &:active {
+    // Optimization
+    transition: none;
+  }
+}
+
+.addAccountIcon {
+  font-size: 1.5rem;
 }
 
 .accountName {

@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useState } from '../../lib/teact/teact';
+import React, { memo, useState } from '../../lib/teact/teact';
 
 import type { ApiDapp } from '../../api/types';
 
@@ -7,13 +7,17 @@ import buildClassName from '../../util/buildClassName';
 import { ANIMATED_STICKERS_PATHS } from '../ui/helpers/animatedAssets';
 
 import useFlag from '../../hooks/useFlag';
+import useHistoryBack from '../../hooks/useHistoryBack';
 import useLang from '../../hooks/useLang';
+import useLastCallback from '../../hooks/useLastCallback';
+import useScrolledState from '../../hooks/useScrolledState';
 
 import DappInfo from '../dapps/DappInfo';
 import DisconnectDappModal from '../main/modals/DisconnectDappModal';
 import AnimatedIconWithPreview from '../ui/AnimatedIconWithPreview';
 import Button from '../ui/Button';
 import ModalHeader from '../ui/ModalHeader';
+import Transition from '../ui/Transition';
 
 import styles from './Settings.module.scss';
 
@@ -35,16 +39,26 @@ function SettingsDapps({
   const [isDisconnectModalOpen, openDisconnectModal, closeDisconnectModal] = useFlag();
   const [dappToDelete, setDappToDelete] = useState<ApiDapp | undefined>();
 
-  const handleDisconnectDapp = useCallback((origin: string) => {
+  useHistoryBack({
+    isActive,
+    onBack: handleBackClick,
+  });
+
+  const {
+    handleScroll: handleContentScroll,
+    isScrolled,
+  } = useScrolledState();
+
+  const handleDisconnectDapp = useLastCallback((origin: string) => {
     const dapp = dapps.find((d) => d.origin === origin);
     setDappToDelete(dapp);
     openDisconnectModal();
-  }, [openDisconnectModal, dapps]);
+  });
 
-  const handleDisconnectAll = useCallback(() => {
+  const handleDisconnectAll = useLastCallback(() => {
     setDappToDelete(undefined);
     openDisconnectModal();
-  }, [openDisconnectModal]);
+  });
 
   function renderDapp(dapp: ApiDapp) {
     const {
@@ -68,8 +82,8 @@ function SettingsDapps({
     const dappList = dapps.map(renderDapp);
 
     return (
-      <div className={buildClassName(styles.slide, 'custom-scroll')}>
-        <div>
+      <div className={styles.slide}>
+        <div className={styles.disconnectAllBlock}>
           <Button
             className={styles.disconnectButton}
             isSimple
@@ -97,7 +111,6 @@ function SettingsDapps({
           tgsUrl={ANIMATED_STICKERS_PATHS.noData}
           previewUrl={ANIMATED_STICKERS_PATHS.noDataPreview}
           size={ANIMATED_STICKER_BIG_SIZE_PX}
-          className={styles.sticker}
           noLoop={false}
           nonInteractive
         />
@@ -111,11 +124,16 @@ function SettingsDapps({
     : renderDapps();
 
   return (
-    <div className={buildClassName(styles.slide, 'custom-scroll')}>
+    <div className={styles.slide}>
       {isInsideModal ? (
-        <ModalHeader title={lang('Dapps')} onBackButtonClick={handleBackClick} />
+        <ModalHeader
+          title={lang('Dapps')}
+          withNotch={isScrolled}
+          onBackButtonClick={handleBackClick}
+          className={styles.modalHeader}
+        />
       ) : (
-        <div className={styles.header}>
+        <div className={buildClassName(styles.header, 'with-notch-on-scroll', isScrolled && 'is-scrolled')}>
           <Button isSimple isText onClick={handleBackClick} className={styles.headerBack}>
             <i className={buildClassName(styles.iconChevron, 'icon-chevron-left')} aria-hidden />
             <span>{lang('Back')}</span>
@@ -123,8 +141,13 @@ function SettingsDapps({
           <span className={styles.headerTitle}>{lang('Dapps')}</span>
         </div>
       )}
-      <div className={styles.content}>
-        {content}
+      <div
+        className={buildClassName(styles.content, 'custom-scroll')}
+        onScroll={handleContentScroll}
+      >
+        <Transition activeKey={dapps.length === 0 ? 0 : 1} name="fade">
+          {content}
+        </Transition>
       </div>
       <DisconnectDappModal isOpen={isDisconnectModalOpen} onClose={closeDisconnectModal} dapp={dappToDelete} />
     </div>

@@ -1,12 +1,13 @@
-import React, { memo, useEffect, useMemo } from '../../../../lib/teact/teact';
+import React, { memo, useMemo } from '../../../../lib/teact/teact';
+import { withGlobal } from '../../../../global';
 
 import type { ApiNft } from '../../../../api/types';
 
 import { ANIMATED_STICKER_BIG_SIZE_PX, GETGEMS_BASE_MAINNET_URL, GETGEMS_BASE_TESTNET_URL } from '../../../../config';
-import { getActions, withGlobal } from '../../../../global';
 import renderText from '../../../../global/helpers/renderText';
 import { selectCurrentAccountState } from '../../../../global/selectors';
 import buildClassName from '../../../../util/buildClassName';
+import { getCapacitorPlatform } from '../../../../util/capacitor';
 import { shortenAddress } from '../../../../util/shortenAddress';
 import { ANIMATED_STICKERS_PATHS } from '../../../ui/helpers/animatedAssets';
 
@@ -26,23 +27,16 @@ interface OwnProps {
 interface StateProps {
   orderedAddresses?: string[];
   byAddress?: Record<string, ApiNft>;
-  currentAccountId: string;
   isTestnet?: boolean;
 }
 
 function Nfts({
-  isActive, orderedAddresses, byAddress, currentAccountId, isTestnet,
+  isActive, orderedAddresses, byAddress, isTestnet,
 }: OwnProps & StateProps) {
-  const { fetchNfts } = getActions();
   const { isLandscape } = useDeviceScreen();
   const lang = useLang();
 
   const getgemsBaseUrl = isTestnet ? GETGEMS_BASE_TESTNET_URL : GETGEMS_BASE_MAINNET_URL;
-
-  useEffect(() => {
-    // TODO Infinite Scroll
-    fetchNfts();
-  }, [fetchNfts, currentAccountId]);
 
   const nfts = useMemo(() => {
     if (!orderedAddresses || !byAddress) {
@@ -73,10 +67,14 @@ function Nfts({
           nonInteractive
         />
         <p className={styles.emptyListTitle}>{lang('No NFTs yet')}</p>
-        <p className={styles.emptyListText}>{renderText(lang('$nft_explore_offer'))}</p>
-        <a className={styles.emptyListButton} href={getgemsBaseUrl} rel="noreferrer noopener" target="_blank">
-          {lang('Open Getgems')}
-        </a>
+        { getCapacitorPlatform() !== 'ios' && (
+          <>
+            <p className={styles.emptyListText}>{renderText(lang('$nft_explore_offer'))}</p>
+            <a className={styles.emptyListButton} href={getgemsBaseUrl} rel="noreferrer noopener" target="_blank">
+              {lang('Open Getgems')}
+            </a>
+          </>
+        ) }
       </div>
     );
   }
@@ -101,16 +99,16 @@ function Nfts({
   );
 }
 export default memo(
-  withGlobal<OwnProps>((global, ownProps, detachWhenChanged): StateProps => {
-    detachWhenChanged(global.currentAccountId);
+  withGlobal<OwnProps>(
+    (global): StateProps => {
+      const { orderedAddresses, byAddress } = selectCurrentAccountState(global)?.nfts || {};
 
-    const { orderedAddresses, byAddress } = selectCurrentAccountState(global)?.nfts || {};
-
-    return {
-      orderedAddresses,
-      byAddress,
-      currentAccountId: global.currentAccountId!,
-      isTestnet: global.settings.isTestnet,
-    };
-  })(Nfts),
+      return {
+        orderedAddresses,
+        byAddress,
+        isTestnet: global.settings.isTestnet,
+      };
+    },
+    (global, _, stickToFirst) => stickToFirst(global.currentAccountId),
+  )(Nfts),
 );

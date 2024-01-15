@@ -1,10 +1,12 @@
 import React, { memo, useMemo } from '../../../../lib/teact/teact';
+import { withGlobal } from '../../../../global';
 
+import type { ApiBaseCurrency } from '../../../../api/types';
 import type { UserToken } from '../../../../global/types';
 
 import { TON_TOKEN_SLUG } from '../../../../config';
-import { withGlobal } from '../../../../global';
 import { selectCurrentAccountState, selectCurrentAccountTokens, selectIsNewWallet } from '../../../../global/selectors';
+import buildClassName from '../../../../util/buildClassName';
 
 import { useDeviceScreen } from '../../../../hooks/useDeviceScreen';
 import useShowTransition from '../../../../hooks/useShowTransition';
@@ -17,6 +19,7 @@ import styles from './Assets.module.scss';
 
 type OwnProps = {
   isActive?: boolean;
+  isSeparatePanel?: boolean;
   onTokenClick: (slug: string) => void;
   onStakedTokenClick: NoneToVoidFunction;
 };
@@ -28,6 +31,8 @@ interface StateProps {
   stakingBalance?: number;
   isInvestorViewEnabled?: boolean;
   apyValue: number;
+  currentTokenSlug?: string;
+  baseCurrency?: ApiBaseCurrency;
 }
 
 function Assets({
@@ -37,16 +42,19 @@ function Assets({
   stakingStatus,
   stakingBalance,
   isInvestorViewEnabled,
+  isSeparatePanel,
   apyValue,
+  currentTokenSlug,
   onTokenClick,
   onStakedTokenClick,
+  baseCurrency,
 }: OwnProps & StateProps) {
   const { isPortrait } = useDeviceScreen();
 
-  const shouldShowGreeting = isNewWallet && isPortrait;
+  const shouldShowGreeting = isNewWallet && isPortrait && !isSeparatePanel;
   const tonToken = useMemo(() => tokens?.find(({ slug }) => slug === TON_TOKEN_SLUG), [tokens])!;
   const { shouldRender: shouldRenderStakedToken, transitionClassNames: stakedTokenClassNames } = useShowTransition(
-    Boolean(stakingStatus),
+    Boolean(stakingStatus && tonToken),
   );
 
   function renderStakedToken() {
@@ -60,54 +68,65 @@ function Assets({
         isInvestorView={isInvestorViewEnabled}
         classNames={stakedTokenClassNames}
         onClick={onStakedTokenClick}
+        baseCurrency={baseCurrency}
+      />
+    );
+  }
+
+  function renderToken(token: UserToken) {
+    if (token.isDisabled) return undefined;
+
+    return (
+      <Token
+        key={token.slug}
+        token={token}
+        apyValue={!stakingBalance && token.slug === TON_TOKEN_SLUG ? apyValue : undefined}
+        isInvestorView={isInvestorViewEnabled}
+        isActive={token.slug === currentTokenSlug}
+        onClick={onTokenClick}
+        baseCurrency={baseCurrency}
       />
     );
   }
 
   return (
-    <div className={styles.wrapper}>
+    <div className={buildClassName(styles.wrapper, isSeparatePanel && !tokens && styles.wrapperLoading)}>
       {!tokens && (
-        <div className={styles.emptyList}>
+        <div className={isSeparatePanel ? styles.emptyListSeparate : styles.emptyList}>
           <Loading />
         </div>
       )}
       {shouldShowGreeting && <NewWalletGreeting isActive={isActive} mode="panel" />}
       {shouldRenderStakedToken && renderStakedToken()}
-      {tokens
-        && tokens.map((token) => (
-          <Token
-            key={token.slug}
-            token={token}
-            apyValue={!stakingBalance && token.slug === TON_TOKEN_SLUG ? apyValue : undefined}
-            isInvestorView={isInvestorViewEnabled}
-            onClick={onTokenClick}
-          />
-        ))}
+      {tokens && tokens.map(renderToken)}
     </div>
   );
 }
 
 export default memo(
-  withGlobal<OwnProps>((global, ownProps, detachWhenChanged): StateProps => {
-    detachWhenChanged(global.currentAccountId);
+  withGlobal<OwnProps>(
+    (global): StateProps => {
+      const tokens = selectCurrentAccountTokens(global);
+      const isNewWallet = selectIsNewWallet(global);
+      const accountState = selectCurrentAccountState(global);
+      const { isInvestorViewEnabled } = global.settings;
+      const stakingStatus = accountState?.staking?.balance
+        ? accountState.staking.isUnstakeRequested
+          ? 'unstakeRequested'
+          : 'active'
+        : undefined;
 
-    const tokens = selectCurrentAccountTokens(global);
-    const isNewWallet = selectIsNewWallet(global);
-    const accountState = selectCurrentAccountState(global);
-    const { isInvestorViewEnabled } = global.settings;
-    const stakingStatus = accountState?.stakingBalance
-      ? accountState.isUnstakeRequested
-        ? 'unstakeRequested'
-        : 'active'
-      : undefined;
-
-    return {
-      tokens,
-      isNewWallet,
-      stakingStatus,
-      stakingBalance: accountState?.stakingBalance,
-      isInvestorViewEnabled,
-      apyValue: accountState?.poolState?.lastApy || 0,
-    };
-  })(Assets),
+      return {
+        tokens,
+        isNewWallet,
+        stakingStatus,
+        stakingBalance: accountState?.staking?.balance,
+        isInvestorViewEnabled,
+        apyValue: accountState?.staking?.apy || 0,
+        currentTokenSlug: accountState?.currentTokenSlug,
+        baseCurrency: global.settings.baseCurrency,
+      };
+    },
+    (global, _, stickToFirst) => stickToFirst(global.currentAccountId),
+  )(Assets),
 );

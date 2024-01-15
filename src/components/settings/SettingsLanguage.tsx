@@ -1,28 +1,32 @@
-import React, { memo, useCallback } from '../../lib/teact/teact';
+import React, { memo } from '../../lib/teact/teact';
+import { getActions } from '../../global';
 
 import type { LangCode } from '../../global/types';
 
 import { LANG_LIST } from '../../config';
-import { getActions } from '../../global';
 import buildClassName from '../../util/buildClassName';
 import { setLanguage } from '../../util/langProvider';
 
+import useHistoryBack from '../../hooks/useHistoryBack';
 import useLang from '../../hooks/useLang';
+import useLastCallback from '../../hooks/useLastCallback';
 
 import Button from '../ui/Button';
 import ModalHeader from '../ui/ModalHeader';
 
 import styles from './Settings.module.scss';
 
-import checkmarkImg from '../../assets/settings/checkmark.svg';
+import checkmarkImg from '../../assets/settings/settings_checkmark.svg';
 
 interface OwnProps {
+  isActive?: boolean;
   langCode: LangCode;
   handleBackClick: () => void;
   isInsideModal?: boolean;
 }
 
 function SettingsLanguage({
+  isActive,
   langCode,
   handleBackClick,
   isInsideModal,
@@ -32,11 +36,16 @@ function SettingsLanguage({
   } = getActions();
   const lang = useLang();
 
-  const handleLanguageChange = useCallback((newLangCode: LangCode) => {
+  useHistoryBack({
+    isActive,
+    onBack: handleBackClick,
+  });
+
+  const handleLanguageChange = useLastCallback((newLangCode: LangCode) => {
     void setLanguage(newLangCode, () => {
       changeLanguage({ langCode: newLangCode });
     });
-  }, [changeLanguage]);
+  });
 
   function renderLanguages() {
     return LANG_LIST.map(({ name, nativeName, langCode: lc }) => (
@@ -56,9 +65,13 @@ function SettingsLanguage({
   }
 
   return (
-    <div className={buildClassName(styles.slide, 'custom-scroll')}>
+    <div className={styles.slide}>
       {isInsideModal ? (
-        <ModalHeader title={lang('Language')} onBackButtonClick={handleBackClick} />
+        <ModalHeader
+          title={lang('Language')}
+          onBackButtonClick={handleBackClick}
+          className={buildClassName(styles.modalHeader, styles.languageHeader)}
+        />
       ) : (
         <div className={styles.header}>
           <Button isSimple isText onClick={handleBackClick} className={styles.headerBack}>
@@ -68,7 +81,7 @@ function SettingsLanguage({
           <span className={styles.headerTitle}>{lang('Language')}</span>
         </div>
       )}
-      <div className={styles.content}>
+      <div className={buildClassName(styles.content, 'custom-scroll')}>
         <div className={styles.block}>
           {renderLanguages()}
         </div>

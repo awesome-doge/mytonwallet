@@ -1,8 +1,8 @@
-import React, { memo, useCallback } from '../../../lib/teact/teact';
-
+import React, { memo } from '../../../lib/teact/teact';
 import { getActions } from '../../../global';
 
 import useLang from '../../../hooks/useLang';
+import useLastCallback from '../../../hooks/useLastCallback';
 
 import Button from '../../ui/Button';
 import Modal from '../../ui/Modal';
@@ -21,7 +21,7 @@ function DeleteSavedAddressModal({ isOpen, address, onClose }: OwnProps) {
 
   const lang = useLang();
 
-  const handleDeleteSavedAddress = useCallback(() => {
+  const handleDeleteSavedAddress = useLastCallback(() => {
     if (!address) {
       return;
     }
@@ -29,7 +29,7 @@ function DeleteSavedAddressModal({ isOpen, address, onClose }: OwnProps) {
     removeFromSavedAddress({ address });
     showNotification({ message: lang('Address removed from saved') as string, icon: 'icon-trash' });
     onClose();
-  }, [address, lang, onClose, removeFromSavedAddress, showNotification]);
+  });
 
   return (
     <Modal

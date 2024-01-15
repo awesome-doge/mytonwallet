@@ -36,7 +36,7 @@
     transition: var(--dropdown-transition-backwards) !important;
 
     :global(html.animation-level-0) & {
-      transition: none !important;
+      transition: var(--no-animation-transition) !important;
     }
   }
 
@@ -57,7 +57,7 @@
   }
 
   :global(html.animation-level-0) & {
-    transition: none !important;
+    transition: var(--no-animation-transition) !important;
   }
 }
 
@@ -104,9 +104,9 @@
   max-height: 16rem;
   padding: 0.5rem;
 
-  @include adapt-padding-to-scrollbar(0.5rem); /* stylelint-disable-line order/order */
+  @include adapt-padding-to-scrollbar(0.5rem);
 
-
+  :global(html.animation-level-0) &,
   &:global(.open) {
     transform: translateY(0) !important;
   }

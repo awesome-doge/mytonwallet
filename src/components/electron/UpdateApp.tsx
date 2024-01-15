@@ -1,14 +1,18 @@
 import React, {
-  memo, useCallback, useEffect, useMemo, useRef, useState,
+  memo, useEffect, useMemo, useRef, useState,
 } from '../../lib/teact/teact';
+import { withGlobal } from '../../global';
 
 import { ElectronEvent } from '../../electron/types';
 
+import { PRODUCTION_URL } from '../../config';
+import { requestMutation } from '../../lib/fasterdom/fasterdom';
 import buildClassName from '../../util/buildClassName';
 import getBoundingClientRectsAsync from '../../util/getBoundingClientReactAsync';
 
 import useFlag from '../../hooks/useFlag';
 import useLang from '../../hooks/useLang';
+import useLastCallback from '../../hooks/useLastCallback';
 import useShowTransition from '../../hooks/useShowTransition';
 
 import styles from './UpdateApp.module.scss';
@@ -17,14 +21,19 @@ const PROGRESS_OFFSET = 28.5; // Minimum progress in % when progressbar starts t
 
 // Fake progress is shown between Update click and actual download progress received
 const FAKE_PROGRESS_STEP = 1;
-const FAKE_PROGRESS_TIMEOUT = 1 * 1000;
+const FAKE_PROGRESS_TIMEOUT_MS = 1000;
 const FAKE_PROGRESS_MAX = 20;
 
-function UpdateApp() {
+type StateProps = {
+  isAppUpdateAvailable?: boolean;
+};
+
+function UpdateApp({ isAppUpdateAvailable }: StateProps) {
   const lang = useLang();
 
-  const [isUpdateAvailable, setIsUpdateAvailable] = useState(false);
-  const [isUpdateDownloaded, setIsUpdateDownloaded] = useState(false);
+  const [isElectronUpdateAvailable, setIsElectronUpdateAvailable] = useState(false);
+  const [isElectronUpdateDownloaded, setIsElectronUpdateDownloaded] = useState(false);
+  const [isElectronAutoUpdateEnabled, setIsElectronAutoUpdateEnabled] = useState(false);
   const [isDisabled, disable, enable] = useFlag(false);
 
   const [progress, setProgress] = useState(0);
@@ -37,22 +46,26 @@ function UpdateApp() {
   const timer = useRef<number | undefined>();
   const isCanceled = useRef<boolean>(false);
 
-  const reset = useCallback(() => {
+  const reset = useLastCallback(() => {
     clearInterval(timer.current);
-    setIsUpdateAvailable(true);
-    setIsUpdateDownloaded(false);
+    setIsElectronUpdateAvailable(true);
+    setIsElectronUpdateDownloaded(false);
     setFakeProgress(0);
     setProgress(0);
-  }, []);
+  });
 
   useEffect(() => {
     const removeUpdateErrorListener = window.electron?.on(ElectronEvent.UPDATE_ERROR, () => {
-      setIsUpdateAvailable(false);
+      setIsElectronUpdateAvailable(false);
     });
     const removeUpdateAvailableListener = window.electron?.on(ElectronEvent.UPDATE_AVAILABLE, () => {
-      setIsUpdateAvailable(true);
+      setIsElectronUpdateAvailable(true);
     });
     const removeUpdateProgressListener = window.electron?.on(ElectronEvent.UPDATE_DOWNLOAD_PROGRESS, async (p: any) => {
+      if (isAppUpdateAvailable) {
+        return;
+      }
+
       if (isCanceled.current) {
         await window.electron?.cancelUpdate();
         enable();
@@ -69,7 +82,7 @@ function UpdateApp() {
       setTimeout(() => {
         setFakeProgress(0);
         setProgress(0);
-        setIsUpdateDownloaded(true);
+        setIsElectronUpdateDownloaded(true);
       }, 2000);
     });
 
@@ -79,22 +92,36 @@ function UpdateApp() {
       removeUpdateProgressListener?.();
       removeUpdateDownloadedListener?.();
     };
-  }, [reset, enable]);
+  }, [reset, enable, isAppUpdateAvailable]);
 
-  const handleClick = useCallback(async () => {
+  useEffect(() => {
+    window.electron?.getIsAutoUpdateEnabled().then(setIsElectronAutoUpdateEnabled);
+  }, []);
+
+  const handleClick = useLastCallback(async () => {
     isCanceled.current = false;
 
     if (isDisabled || progress) {
       return;
     }
 
-    if (isUpdateDownloaded) {
+    if (!isElectronAutoUpdateEnabled) {
+      window.open(`${PRODUCTION_URL}/get`, '_blank', 'noopener');
+      return;
+    }
+
+    if (isElectronUpdateDownloaded) {
       disable();
       await window.electron?.installUpdate();
       return;
     }
 
-    if (isUpdateAvailable) {
+    if (isAppUpdateAvailable) {
+      window.location.reload();
+      return;
+    }
+
+    if (isElectronUpdateAvailable) {
       window.electron?.downloadUpdate();
 
       timer.current = window.setInterval(() => {
@@ -106,11 +133,11 @@ function UpdateApp() {
 
           return fp + FAKE_PROGRESS_STEP;
         });
-      }, FAKE_PROGRESS_TIMEOUT);
+      }, FAKE_PROGRESS_TIMEOUT_MS);
     }
-  }, [progress, isUpdateDownloaded, isUpdateAvailable, isDisabled, disable]);
+  });
 
-  const handleCancel = useCallback(async (event: React.MouseEvent<HTMLDivElement>) => {
+  const handleCancel = useLastCallback(async (event: React.MouseEvent<HTMLDivElement>) => {
     event.stopPropagation();
     disable();
 
@@ -122,25 +149,30 @@ function UpdateApp() {
     }
 
     reset();
-  }, [reset, progress, disable, enable]);
+  });
 
-  const { transitionClassNames, shouldRender } = useShowTransition(isUpdateDownloaded);
+  const canApplyUpdate = isElectronUpdateDownloaded || isAppUpdateAvailable;
+  const { transitionClassNames, shouldRender } = useShowTransition(canApplyUpdate);
 
   const hasProgress = useMemo(() => !!(fakeProgress || progress) && !isDisabled, [progress, fakeProgress, isDisabled]);
-  const isProgressShown = useMemo(() => !isUpdateDownloaded && hasProgress, [isUpdateDownloaded, hasProgress]);
+  const isProgressShown = useMemo(
+    () => !isElectronUpdateDownloaded && hasProgress,
+    [isElectronUpdateDownloaded, hasProgress],
+  );
 
   const isCancelShown = useMemo(() => isProgressShown && progressWidth <= 100, [isProgressShown, progressWidth]);
   const {
     transitionClassNames: cancelTransitionClassNames, shouldRender: shouldRenderCancel,
   } = useShowTransition(isCancelShown);
 
-  const text = useMemo(() => (isUpdateDownloaded ? lang('Restart') : lang('Update')), [isUpdateDownloaded, lang]);
+  // TODO: Return back "Restart" button after animation fix
+  const text = canApplyUpdate ? lang('Update MyTonWallet') : lang('Update');
   const { transitionClassNames: textTransitionClassNames } = useShowTransition(!hasProgress);
 
-  const icon = useMemo(() => (isUpdateDownloaded
+  const icon = useMemo(() => (canApplyUpdate
     ? <i className={buildClassName('icon-update', styles.icon)} />
     : hasProgress ? undefined : <i className={buildClassName('icon-download', styles.icon)} />),
-  [hasProgress, isUpdateDownloaded]);
+  [hasProgress, canApplyUpdate]);
 
   const { containerRef, renderedFakeText } = useContainerAnimation(text);
 
@@ -155,7 +187,7 @@ function UpdateApp() {
         transitionClassNames,
         isProgressShown && styles.withProgress,
         isDisabled && styles.disabled,
-        (isUpdateDownloaded || progress === 100) && styles.success,
+        (canApplyUpdate || progress === 100) && styles.success,
       )}
       ref={containerRef}
       onClick={handleClick}
@@ -191,19 +223,21 @@ function useContainerAnimation(text?: string) {
   const textRef = useRef<HTMLDivElement>(null); // eslint-disable-line no-null/no-null
   const lastWidthRef = useRef<number>();
 
-  const calculateWidth = useCallback(() => {
+  const calculateWidth = useLastCallback(() => {
     if (!textRef.current) {
       return;
     }
 
     getBoundingClientRectsAsync(textRef.current).then((rect) => {
       if (lastWidthRef.current !== rect.width) {
-        // Text width + icon width (19) + paddings (8 * 2)
-        containerRef.current!.style.maxWidth = `${rect.width + 19 + 16}px`;
-        lastWidthRef.current = rect.width;
+        requestMutation(() => {
+          // Text width + icon width (19) + paddings (8 * 2)
+          containerRef.current!.style.maxWidth = `${rect.width + 19 + 16}px`;
+          lastWidthRef.current = rect.width;
+        });
       }
     });
-  }, []);
+  });
 
   useEffect(() => {
     calculateWidth();
@@ -216,4 +250,8 @@ function useContainerAnimation(text?: string) {
   return { containerRef, renderedFakeText };
 }
 
-export default memo(UpdateApp);
+export default memo(withGlobal((global): StateProps => {
+  const { isAppUpdateAvailable } = global;
+
+  return { isAppUpdateAvailable };
+})(UpdateApp));

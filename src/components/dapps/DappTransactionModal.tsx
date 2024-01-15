@@ -1,18 +1,20 @@
-import React, { memo, useCallback, useMemo } from '../../lib/teact/teact';
-
-import { TransferState } from '../../global/types';
-import type { GlobalState, HardwareConnectState, UserToken } from '../../global/types';
-
-import { ANIMATED_STICKER_SMALL_SIZE_PX, TON_TOKEN_SLUG } from '../../config';
+import React, { memo, useMemo } from '../../lib/teact/teact';
 import { getActions, withGlobal } from '../../global';
+
+import type { GlobalState, HardwareConnectState, UserToken } from '../../global/types';
+import { TransferState } from '../../global/types';
+
+import { ANIMATED_STICKER_SMALL_SIZE_PX, IS_CAPACITOR, TON_TOKEN_SLUG } from '../../config';
 import { selectCurrentAccountTokens } from '../../global/selectors';
 import buildClassName from '../../util/buildClassName';
+import resolveModalTransitionName from '../../util/resolveModalTransitionName';
 import { ANIMATED_STICKERS_PATHS } from '../ui/helpers/animatedAssets';
 
 import useLang from '../../hooks/useLang';
+import useLastCallback from '../../hooks/useLastCallback';
 import useModalTransitionKeys from '../../hooks/useModalTransitionKeys';
 
-import LedgerConfirmTransaction from '../ledger/LedgerConfirmTransaction';
+import LedgerConfirmOperation from '../ledger/LedgerConfirmOperation';
 import LedgerConnect from '../ledger/LedgerConnect';
 import AnimatedIconWithPreview from '../ui/AnimatedIconWithPreview';
 import Button from '../ui/Button';
@@ -20,6 +22,7 @@ import Modal from '../ui/Modal';
 import ModalHeader from '../ui/ModalHeader';
 import PasswordForm from '../ui/PasswordForm';
 import Transition from '../ui/Transition';
+import DappLedgerWarning from './DappLedgerWarning';
 import DappTransaction from './DappTransaction';
 import DappTransferInitial from './DappTransferInitial';
 
@@ -36,6 +39,7 @@ interface StateProps {
 
 function DappTransactionModal({
   currentDappTransfer: {
+    dapp,
     transactions,
     isLoading,
     viewTransactionOnIdx,
@@ -62,15 +66,21 @@ function DappTransactionModal({
 
   const { renderingKey, nextKey, updateNextKey } = useModalTransitionKeys(state, isOpen);
 
-  const handleBackClick = useCallback(() => {
+  const isDappLoading = dapp === undefined;
+
+  const handleBackClick = useLastCallback(() => {
     if (state === TransferState.Confirm || state === TransferState.Password) {
       setDappTransferScreen({ state: TransferState.Initial });
     }
-  }, [setDappTransferScreen, state]);
+  });
 
-  const handleTransferPasswordSubmit = useCallback((password: string) => {
+  const handleTransferPasswordSubmit = useLastCallback((password: string) => {
     submitDappTransferPassword({ password });
-  }, [submitDappTransferPassword]);
+  });
+
+  const handleLedgerConnect = useLastCallback(() => {
+    submitDappTransferHardware();
+  });
 
   function renderSingleTransaction(isActive: boolean) {
     const transaction = viewTransactionOnIdx !== undefined ? transactions?.[viewTransactionOnIdx] : undefined;
@@ -107,12 +117,13 @@ function DappTransactionModal({
   function renderPassword(isActive: boolean) {
     return (
       <>
-        <ModalHeader title={lang('Confirm Transaction')} onClose={cancelDappTransfer} />
+        {!IS_CAPACITOR && <ModalHeader title={lang('Confirm Transaction')} onClose={cancelDappTransfer} />}
         <PasswordForm
           isActive={isActive}
           isLoading={isLoading}
           error={error}
           placeholder={lang('Enter your password')}
+          withCloseButton={IS_CAPACITOR}
           onUpdate={clearDappTransferError}
           onSubmit={handleTransferPasswordSubmit}
           submitLabel={lang('Send')}
@@ -123,36 +134,83 @@ function DappTransactionModal({
     );
   }
 
-  // eslint-disable-next-line consistent-return
-  function renderContent(isActive: boolean, isFrom: boolean, currentKey: number) {
-    switch (currentKey) {
-      case TransferState.Initial:
-        return (
+  function renderWaitForConnection() {
+    const renderRow = (isLarge?: boolean) => (
+      <div className={styles.rowContainerSkeleton}>
+        <div className={buildClassName(styles.rowTextSkeleton, isLarge && styles.rowTextLargeSkeleton)} />
+        <div className={buildClassName(styles.rowSkeleton, isLarge && styles.rowLargeSkeleton)} />
+      </div>
+    );
+
+    return (
+      <>
+        <ModalHeader title={lang('Send Transaction')} onClose={cancelDappTransfer} />
+        <div className={modalStyles.transitionContent}>
+          <div className={styles.transactionDirection}>
+            <div className={styles.transactionDirectionLeftSkeleton}>
+              <div className={buildClassName(styles.nameSkeleton, styles.nameDappSkeleton)} />
+              <div className={buildClassName(styles.descSkeleton, styles.descDappSkeleton)} />
+            </div>
+            <div className={styles.transactionDirectionRightSkeleton}>
+              <div className={buildClassName(styles.dappInfoIconSkeleton, styles.transactionDappIconSkeleton)} />
+              <div className={styles.dappInfoDataSkeleton}>
+                <div className={buildClassName(styles.nameSkeleton, styles.nameDappSkeleton)} />
+                <div className={buildClassName(styles.descSkeleton, styles.descDappSkeleton)} />
+              </div>
+            </div>
+          </div>
+          {renderRow(true)}
+          {renderRow()}
+          {renderRow()}
+        </div>
+      </>
+    );
+  }
+
+  function renderTransferInitialWithSkeleton() {
+    return (
+      <Transition name="fade" activeKey={isDappLoading ? 0 : 1} slideClassName={styles.skeletonTransitionWrapper}>
+        {isDappLoading ? renderWaitForConnection() : (
           <>
             <ModalHeader title={lang('Send Transaction')} onClose={cancelDappTransfer} />
             <DappTransferInitial tonToken={tonToken} />
           </>
-        );
+        )}
+      </Transition>
+    );
+  }
 
+  // eslint-disable-next-line consistent-return
+  function renderContent(isActive: boolean, isFrom: boolean, currentKey: number) {
+    switch (currentKey) {
+      case TransferState.Initial:
+        return renderTransferInitialWithSkeleton();
+      case TransferState.WarningHardware:
+        return (
+          <>
+            <ModalHeader title={lang('Send Transaction')} onClose={cancelDappTransfer} />
+            <DappLedgerWarning tonToken={tonToken} />
+          </>
+        );
       case TransferState.Confirm:
         return renderSingleTransaction(isActive);
-
       case TransferState.Password:
         return renderPassword(isActive);
-
       case TransferState.ConnectHardware:
         return (
           <LedgerConnect
+            isActive={isActive}
             state={hardwareState}
             isTonAppConnected={isTonAppConnected}
             isLedgerConnected={isLedgerConnected}
-            onConnected={submitDappTransferHardware}
+            onConnected={handleLedgerConnect}
             onClose={cancelDappTransfer}
           />
         );
       case TransferState.ConfirmHardware:
         return (
-          <LedgerConfirmTransaction
+          <LedgerConfirmOperation
+            text={lang('Please confirm transaction on your Ledger')}
             error={error}
             onTryAgain={submitDappTransferHardware}
             onClose={cancelDappTransfer}
@@ -164,15 +222,16 @@ function DappTransactionModal({
   return (
     <Modal
       hasCloseButton
-      isSlideUp
       isOpen={isOpen}
-      onClose={cancelDappTransfer}
       noBackdropClose
       dialogClassName={styles.modalDialog}
+      nativeBottomSheetKey="dapp-transaction"
+      forceFullNative={renderingKey === TransferState.Password}
+      onClose={cancelDappTransfer}
       onCloseAnimationEnd={updateNextKey}
     >
       <Transition
-        name="pushSlide"
+        name={resolveModalTransitionName()}
         className={buildClassName(modalStyles.transition, 'custom-scroll')}
         slideClassName={modalStyles.transitionSlide}
         activeKey={renderingKey}

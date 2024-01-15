@@ -1,8 +1,7 @@
 import type { RefObject } from 'react';
 import { useEffect, useRef } from '../lib/teact/teact';
 
-import { IS_ELECTRON } from '../config';
-import { IS_MAC_OS } from '../util/windowEnvironment';
+import { IS_ELECTRON, IS_MAC_OS } from '../util/windowEnvironment';
 
 const DRAG_DISTANCE_THRESHOLD = 5;
 
@@ -47,14 +46,22 @@ const useElectronDrag = (ref: RefObject<HTMLDivElement>) => {
       }
     };
 
+    const handleDoubleClick = (event: MouseEvent) => {
+      if (event.currentTarget === event.target) {
+        window.electron?.handleDoubleClick();
+      }
+    };
+
     element.addEventListener('click', handleClick);
     element.addEventListener('mousedown', handleMousedown);
     element.addEventListener('mousemove', handleDrag);
+    element.addEventListener('dblclick', handleDoubleClick);
 
     return () => {
       element.removeEventListener('click', handleClick);
       element.removeEventListener('mouseup', handleMousedown);
       element.removeEventListener('mousemove', handleDrag);
+      element.removeEventListener('dblclick', handleDoubleClick);
     };
   }, [ref]);
 };

@@ -8,7 +8,7 @@ interface OrderCallback<T> {
   (member: T): any;
 }
 
-export function buildCollectionByKey<T extends AnyLiteral>(collection: T[], key: keyof T) {
+export function buildCollectionByKey<T extends AnyLiteral>(collection: T[], key: keyof T): CollectionByKey<T> {
   return collection.reduce((byKey: CollectionByKey<T>, member: T) => {
     byKey[member[key]] = member;
 
@@ -150,4 +150,8 @@ export function fromKeyValueArrays<T>(keys: string[], values: T[] | T) {
     acc[key] = Array.isArray(values) ? values[index] : values;
     return acc;
   }, {} as Record<string, T>);
+}
+
+export function extractKey<T, K extends keyof T>(array: T[], key: K): T[K][] {
+  return array.map((value) => value[key]);
 }

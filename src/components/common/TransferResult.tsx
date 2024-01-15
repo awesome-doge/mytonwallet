@@ -1,6 +1,6 @@
 import React, { memo } from '../../lib/teact/teact';
 
-import { CARD_SECONDARY_VALUE_SYMBOL } from '../../config';
+import { TON_SYMBOL } from '../../config';
 import buildClassName from '../../util/buildClassName';
 import { formatCurrency, formatCurrencyExtended } from '../../util/formatNumber';
 import { ANIMATED_STICKERS_PATHS } from '../ui/helpers/animatedAssets';
@@ -29,7 +29,7 @@ interface OwnProps {
 function TransferResult({
   playAnimation,
   amount = 0,
-  tokenSymbol = CARD_SECONDARY_VALUE_SYMBOL,
+  tokenSymbol = TON_SYMBOL,
   precision = 2,
   noSign,
   color,
@@ -41,8 +41,11 @@ function TransferResult({
   onFirstButtonClick,
   onSecondButtonClick,
 }: OwnProps) {
-  const withBalanceChange = balance && operationAmount;
-  const finalBalance = withBalanceChange ? balance + operationAmount - (fee ?? 0) : 0;
+  const withBalanceChange = Boolean(balance !== undefined && operationAmount);
+  let finalBalance = withBalanceChange ? balance! + operationAmount! : 0;
+  if (finalBalance && fee && tokenSymbol === TON_SYMBOL) {
+    finalBalance -= fee;
+  }
   const [wholePart, fractionPart] = formatCurrencyExtended(amount, '', noSign).split('.');
 
   function renderButtons() {
@@ -55,7 +58,7 @@ function TransferResult({
         {firstButtonText && (
           <Button className={styles.button} onClick={onFirstButtonClick}>{firstButtonText}</Button>
         )}
-        {firstButtonText && (
+        {secondButtonText && (
           <Button className={styles.button} onClick={onSecondButtonClick}>{secondButtonText}</Button>
         )}
       </div>

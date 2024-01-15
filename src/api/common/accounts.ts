@@ -1,22 +1,28 @@
-import type { Storage, StorageKey } from '../storages/types';
-import type { ApiAccountInfo, ApiNetwork } from '../types';
+import type { StorageKey } from '../storages/types';
+import type { ApiAccount, ApiNetwork } from '../types';
 
 import { buildAccountId, parseAccountId } from '../../util/account';
 import { buildCollectionByKey } from '../../util/iteratees';
-import { toInternalAccountId } from './helpers';
+import { storage } from '../storages';
 
 const MIN_ACCOUNT_NUMBER = 0;
 
-export async function getAccountIds(storage: Storage): Promise<string[]> {
-  return Object.keys(await storage.getItem('addresses') || {});
+// eslint-disable-next-line import/no-mutable-exports
+export let loginResolve: AnyFunction;
+const loginPromise = new Promise<void>((resolve) => {
+  loginResolve = resolve;
+});
+
+export async function getAccountIds(): Promise<string[]> {
+  return Object.keys(await storage.getItem('accounts') || {});
 }
 
-export async function getMainAccountId(storage: Storage) {
-  const accountIds = await getAccountIds(storage);
+export async function getMainAccountId() {
+  const accountIds = await getAccountIds();
 
   const accounts = await Promise.all(
     accountIds.map(async (accountId) => {
-      const info = await fetchStoredAccount(storage, accountId);
+      const info = await fetchStoredAccount(accountId);
       return {
         ...parseAccountId(accountId),
         accountId,
@@ -46,8 +52,8 @@ export async function getMainAccountId(storage: Storage) {
   return accountById[id].accountId;
 }
 
-export async function getNewAccountId(storage: Storage, network: ApiNetwork) {
-  const ids = (await getAccountIds(storage)).map((accountId) => parseAccountId(accountId).id);
+export async function getNewAccountId(network: ApiNetwork) {
+  const ids = (await getAccountIds()).map((accountId) => parseAccountId(accountId).id);
   const id = ids.length === 0 ? MIN_ACCOUNT_NUMBER : Math.max(...ids) + 1;
   return buildAccountId({
     id,
@@ -56,34 +62,74 @@ export async function getNewAccountId(storage: Storage, network: ApiNetwork) {
   });
 }
 
-export function fetchStoredAccount(storage: Storage, accountId: string): Promise<ApiAccountInfo | undefined> {
-  return getAccountValue(storage, accountId, 'accounts');
+export async function fetchStoredPublicKey(accountId: string): Promise<string> {
+  return (await fetchStoredAccount(accountId)).publicKey;
 }
 
-export function fetchStoredPublicKey(storage: Storage, accountId: string): Promise<string> {
-  return getAccountValue(storage, accountId, 'publicKeys');
+export async function fetchStoredAddress(accountId: string): Promise<string> {
+  return (await fetchStoredAccount(accountId)).address;
 }
 
-export function fetchStoredAddress(storage: Storage, accountId: string): Promise<string> {
-  return getAccountValue(storage, accountId, 'addresses');
+export function fetchStoredAccount(accountId: string): Promise<ApiAccount> {
+  return getAccountValue(accountId, 'accounts');
 }
 
-export async function getAccountValue(storage: Storage, accountId: string, key: StorageKey) {
-  const internalId = toInternalAccountId(accountId);
-  return (await storage.getItem(key))?.[internalId];
+export async function updateStoredAccount(accountId: string, partial: Partial<ApiAccount>): Promise<void> {
+  const account = await fetchStoredAccount(accountId);
+  return setAccountValue(accountId, 'accounts', {
+    ...account,
+    ...partial,
+  });
 }
 
-export async function removeAccountValue(storage: Storage, accountId: string, key: StorageKey) {
-  const internalId = toInternalAccountId(accountId);
+export async function getAccountValue(accountId: string, key: StorageKey) {
+  return (await storage.getItem(key))?.[accountId];
+}
+
+export async function removeAccountValue(accountId: string, key: StorageKey) {
   const data = await storage.getItem(key);
   if (!data) return;
 
-  const { [internalId]: removedValue, ...restData } = data;
+  const { [accountId]: removedValue, ...restData } = data;
   await storage.setItem(key, restData);
 }
 
-export async function setAccountValue(storage: Storage, accountId: string, key: StorageKey, value: any) {
-  const internalId = toInternalAccountId(accountId);
+export async function setAccountValue(accountId: string, key: StorageKey, value: any) {
   const data = await storage.getItem(key);
-  await storage.setItem(key, { ...data, [internalId]: value });
+  await storage.setItem(key, { ...data, [accountId]: value });
+}
+
+export async function removeNetworkAccountsValue(network: string, key: StorageKey) {
+  const data = await storage.getItem(key);
+  if (!data) return;
+
+  for (const accountId of Object.keys(data)) {
+    if (parseAccountId(accountId).network === network) {
+      delete data[accountId];
+    }
+  }
+
+  await storage.setItem(key, data);
+}
+
+export async function getCurrentNetwork() {
+  const accountId = await getCurrentAccountId();
+  if (!accountId) return undefined;
+  return parseAccountId(accountId).network;
+}
+
+export async function getCurrentAccountIdOrFail() {
+  const accountId = await getCurrentAccountId();
+  if (!accountId) {
+    throw new Error('The user is not authorized in the wallet');
+  }
+  return accountId;
+}
+
+export function getCurrentAccountId(): Promise<string | undefined> {
+  return storage.getItem('currentAccountId');
+}
+
+export function waitLogin() {
+  return loginPromise;
 }

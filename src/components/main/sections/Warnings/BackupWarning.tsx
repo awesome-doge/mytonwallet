@@ -1,8 +1,8 @@
 import React, { memo } from '../../../../lib/teact/teact';
+import { withGlobal } from '../../../../global';
 
 import type { Theme } from '../../../../global/types';
 
-import { withGlobal } from '../../../../global';
 import buildClassName from '../../../../util/buildClassName';
 
 import useBrowserUiColor from '../../../../hooks/useBrowserUiColor';
@@ -51,7 +51,7 @@ function BackupWarning({ isRequired, theme, onOpenBackupWallet }: OwnProps & Sta
       onClick={handleClick}
     >
       {lang('Wallet is not backed up')}
-      <i className={buildClassName(styles.icon, 'icon-chevron-right')} />
+      <i className={buildClassName(styles.icon, 'icon-chevron-right')} aria-hidden />
       <p className={styles.text}>
         {lang('Back up wallet to have full access to it')}
       </p>
@@ -60,11 +60,12 @@ function BackupWarning({ isRequired, theme, onOpenBackupWallet }: OwnProps & Sta
 }
 
 export default memo(
-  withGlobal<OwnProps>((global, ownProps, detachWhenChanged): StateProps => {
-    detachWhenChanged(global.currentAccountId);
-
-    return {
-      theme: global.settings.theme,
-    };
-  })(BackupWarning),
+  withGlobal<OwnProps>(
+    (global): StateProps => {
+      return {
+        theme: global.settings.theme,
+      };
+    },
+    (global, _, stickToFirst) => stickToFirst(global.currentAccountId),
+  )(BackupWarning),
 );

@@ -1,26 +1,28 @@
-import type { OnApiDappUpdate } from '../../types/dappUpdates';
+import type { Connector } from '../../../util/PostMessageConnector';
 import type {
-  DappMethodResponse, DappMethods, LegacyDappMethodResponse,
+  LegacyDappMethodResponse,
   LegacyDappMethods,
-} from '../../dappMethods/types';
+  SiteMethodResponse,
+  SiteMethods,
+} from '../../extensionMethods/types';
+import type { OnApiSiteUpdate } from '../../types/dappUpdates';
 
 import { PAGE_CONNECTOR_CHANNEL } from './config';
 import { logDebugError } from '../../../util/logs';
-import type { Connector } from '../../../util/PostMessageConnector';
 import { createConnector } from '../../../util/PostMessageConnector';
 
 let connector: Connector;
 
-type Methods = DappMethods & LegacyDappMethods;
+type Methods = SiteMethods & LegacyDappMethods;
 type MethodResponse<T extends keyof Methods> = (
-  T extends keyof DappMethods
-    ? DappMethodResponse<T>
+  T extends keyof SiteMethods
+    ? SiteMethodResponse<T>
     : T extends keyof LegacyDappMethods
       ? LegacyDappMethodResponse<T>
       : never
   );
 
-export function initApi(onUpdate: OnApiDappUpdate) {
+export function initApi(onUpdate: OnApiSiteUpdate) {
   connector = createConnector(window, onUpdate, PAGE_CONNECTOR_CHANNEL, window.location.href);
   return connector;
 }

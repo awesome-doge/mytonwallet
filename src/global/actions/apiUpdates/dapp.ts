@@ -1,9 +1,9 @@
-import { TransferState } from '../../types';
+import { DappConnectState, TransferState } from '../../types';
 
 import { TON_TOKEN_SLUG } from '../../../config';
-import { callApi } from '../../../api';
+import { IS_DELEGATING_BOTTOM_SHEET } from '../../../util/windowEnvironment';
 import { bigStrToHuman } from '../../helpers';
-import { addActionHandler, getGlobal, setGlobal } from '../../index';
+import { addActionHandler, setGlobal } from '../../index';
 import {
   clearCurrentDappTransfer,
   clearCurrentSignature,
@@ -14,7 +14,11 @@ import {
   updateCurrentTransfer,
   updateDappConnectRequest,
 } from '../../reducers';
-import { selectAccountState, selectNewestTxIds } from '../../selectors';
+import {
+  selectAccountState,
+} from '../../selectors';
+
+import { callActionInNative } from '../../../hooks/useDelegatedBottomSheet';
 
 addActionHandler('apiUpdate', (global, actions, update) => {
   switch (update.type) {
@@ -61,13 +65,6 @@ addActionHandler('apiUpdate', (global, actions, update) => {
       break;
     }
 
-    case 'showTxDraftError': {
-      const { error } = update;
-      actions.showTxDraftError({ error });
-
-      break;
-    }
-
     case 'showError': {
       const { error } = update;
       actions.showError({ error });
@@ -75,52 +72,12 @@ addActionHandler('apiUpdate', (global, actions, update) => {
       break;
     }
 
-    case 'updateTonProxyState': {
-      const { isEnabled } = update;
-
-      setGlobal({
-        ...global,
-        settings: {
-          ...global.settings,
-          isTonProxyEnabled: isEnabled,
-        },
-      });
-
-      break;
-    }
-
-    case 'updateTonMagicState': {
-      const { isEnabled } = update;
-
-      setGlobal({
-        ...global,
-        settings: {
-          ...global.settings,
-          isTonMagicEnabled: isEnabled,
-        },
-      });
-
-      break;
-    }
-
     case 'dappConnect': {
-      const {
-        promiseId,
-        dapp,
-        accountId,
-        permissions,
-      } = update;
+      if (IS_DELEGATING_BOTTOM_SHEET) {
+        callActionInNative('apiUpdateDappConnect', update);
+      }
 
-      global = updateDappConnectRequest(global, {
-        promiseId,
-        accountId,
-        dapp,
-        permissions: {
-          isAddressRequired: permissions.address,
-          isPasswordRequired: permissions.proof,
-        },
-      });
-      setGlobal(global);
+      actions.apiUpdateDappConnect(update);
 
       break;
     }
@@ -149,51 +106,28 @@ addActionHandler('apiUpdate', (global, actions, update) => {
       break;
     }
 
-    case 'dappSendTransactions': {
-      const {
-        promiseId,
-        transactions,
-        fee,
-        accountId,
-        dapp,
-      } = update;
+    case 'dappLoading': {
+      const { connectionType } = update;
 
-      (async () => {
-        const { currentAccountId } = global;
-        if (currentAccountId !== accountId) {
-          const newestTxIds = selectNewestTxIds(global, accountId);
-          await callApi('activateAccount', accountId, newestTxIds);
-          setGlobal({
-            ...getGlobal(),
-            currentAccountId: accountId,
-          });
-        }
-
-        global = getGlobal();
-        global = clearCurrentDappTransfer(global);
+      if (connectionType === 'connect') {
+        global = updateDappConnectRequest(global, {
+          state: DappConnectState.Info,
+        });
+      } else if (connectionType === 'sendTransaction') {
         global = updateCurrentDappTransfer(global, {
           state: TransferState.Initial,
-          promiseId,
-          transactions,
-          fee,
-          dapp,
         });
-        setGlobal(global);
-      })();
-
+      }
+      setGlobal(global);
       break;
     }
 
-    case 'updateDeeplinkHookState': {
-      const { isEnabled } = update;
+    case 'dappSendTransactions': {
+      if (IS_DELEGATING_BOTTOM_SHEET) {
+        callActionInNative('apiUpdateDappSendTransaction', update);
+      }
 
-      setGlobal({
-        ...global,
-        settings: {
-          ...global.settings,
-          isDeeplinkHookEnabled: isEnabled,
-        },
-      });
+      actions.apiUpdateDappSendTransaction(update);
 
       break;
     }

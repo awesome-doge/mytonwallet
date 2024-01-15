@@ -1,59 +1,108 @@
 import React, {
-  memo, useCallback, useEffect, useMemo, useRef,
+  memo, useEffect, useMemo, useRef,
 } from '../../../../lib/teact/teact';
+import { getActions, withGlobal } from '../../../../global';
 
 import { ElectronEvent } from '../../../../electron/types';
+import { ActiveTab } from '../../../../global/types';
 
-import { getActions, withGlobal } from '../../../../global';
-import { selectLandscapeActionsActiveTabIndex } from '../../../../global/selectors';
+import { DEFAULT_LANDSCAPE_ACTION_TAB_ID } from '../../../../config';
+import { requestMutation } from '../../../../lib/fasterdom/fasterdom';
+import { selectAccountState } from '../../../../global/selectors';
 import buildClassName from '../../../../util/buildClassName';
-import getBoundingClientRectsAsync from '../../../../util/getBoundingClientReactAsync';
-import { fastRaf } from '../../../../util/schedulers';
 import { ReceiveStatic } from '../../../receive';
 
 import useLang from '../../../../hooks/useLang';
+import useLastCallback from '../../../../hooks/useLastCallback';
 
+import StakingInfoContent from '../../../staking/StakingInfoContent';
+import StakingInitial from '../../../staking/StakingInitial';
+import SwapInitial from '../../../swap/SwapInitial';
 import TransferInitial from '../../../transfer/TransferInitial';
-import Button from '../../../ui/Button';
 import Transition, { ACTIVE_SLIDE_CLASS_NAME, TO_SLIDE_CLASS_NAME } from '../../../ui/Transition';
 
 import styles from './LandscapeActions.module.scss';
 
-const TABS = [
-  { id: 'receive', title: 'Receive', className: styles.tab },
-  { id: 'send', title: 'Send', className: styles.tab },
-];
+const TABS = [ActiveTab.Receive, ActiveTab.Transfer, ActiveTab.Swap, ActiveTab.Stake];
 
 interface OwnProps {
   hasStaking?: boolean;
   isUnstakeRequested?: boolean;
-  onEarnClick: NoneToVoidFunction;
+  isLedger?: boolean;
 }
 
 interface StateProps {
-  activeTabIndex: 0 | 1;
+  activeTabIndex?: ActiveTab;
+  isTestnet?: boolean;
+  isSwapDisabled: boolean;
 }
 
 function LandscapeActions({
   hasStaking,
-  activeTabIndex,
+  activeTabIndex = DEFAULT_LANDSCAPE_ACTION_TAB_ID,
   isUnstakeRequested,
-  onEarnClick,
+  isTestnet,
+  isLedger,
+  isSwapDisabled,
 }: OwnProps & StateProps) {
   const { setLandscapeActionsActiveTabIndex: setActiveTabIndex } = getActions();
-
   const lang = useLang();
-  const { renderedBgHelpers, transitionRef, handleTransitionStart } = useTabHeightAnimation();
 
-  function renderCurrentTab() {
-    switch (TABS[activeTabIndex].id) {
-      case 'receive':
+  const isStaking = activeTabIndex === ActiveTab.Stake && (hasStaking || isUnstakeRequested);
+  const {
+    renderedBgHelpers,
+    transitionRef,
+    handleTransitionStart,
+  } = useTabHeightAnimation(
+    styles.slideContent,
+    isStaking ? styles.contentSlideStaked : undefined,
+    isStaking,
+  );
+
+  const isSwapAllowed = !isTestnet && !isLedger && !isSwapDisabled;
+  const isStakingAllowed = !isTestnet && !isLedger;
+  const areNotAllTabs = !isSwapAllowed || !isStakingAllowed;
+
+  useEffect(() => {
+    if (
+      (!isSwapAllowed && activeTabIndex === ActiveTab.Swap)
+      || (!isStakingAllowed && activeTabIndex === ActiveTab.Stake)
+    ) {
+      setActiveTabIndex({ index: ActiveTab.Transfer });
+    }
+  }, [activeTabIndex, isTestnet, isLedger, isSwapAllowed, isStakingAllowed]);
+
+  function renderCurrentTab(isActive: boolean) {
+    switch (activeTabIndex) {
+      case ActiveTab.Receive:
         return <ReceiveStatic className={styles.slideContent} />;
 
-      case 'send':
+      case ActiveTab.Transfer:
         return (
           <div className={styles.slideContent}>
-            <TransferInitial isStatic />
+            <TransferInitial isStatic onCommentChange={handleTransitionStart} />
+          </div>
+        );
+
+      case ActiveTab.Swap:
+        return (
+          <div className={styles.slideContent}>
+            <SwapInitial isStatic isActive={isActive} />
+          </div>
+        );
+
+      case ActiveTab.Stake:
+        if (hasStaking || isUnstakeRequested) {
+          return (
+            <div className={styles.slideContent}>
+              <StakingInfoContent isStatic isActive={isActive} />
+            </div>
+          );
+        }
+
+        return (
+          <div className={styles.slideContent}>
+            <StakingInitial isStatic isActive={isActive} />
           </div>
         );
 
@@ -64,54 +113,77 @@ function LandscapeActions({
 
   useEffect(() => {
     return window.electron?.on(ElectronEvent.DEEPLINK, () => {
-      setActiveTabIndex({ index: 1 });
+      setActiveTabIndex({ index: DEFAULT_LANDSCAPE_ACTION_TAB_ID });
     });
   }, [setActiveTabIndex]);
 
   useEffect(() => {
     handleTransitionStart();
-  }, [activeTabIndex, handleTransitionStart]);
+  }, [activeTabIndex, handleTransitionStart, lang]);
 
   return (
     <div className={styles.container}>
-      <div className={styles.tabs}>
-        <Button
-          className={buildClassName(styles.tab, activeTabIndex === 0 && styles.active)}
-          isSimple
-          // eslint-disable-next-line react/jsx-no-bind
-          onClick={() => setActiveTabIndex({ index: 0 })}
+      <div className={
+        buildClassName(styles.tabs, areNotAllTabs && styles.notAllTabs)
+      }
+      >
+        <div
+          className={buildClassName(styles.tab, activeTabIndex === ActiveTab.Receive && styles.active)}
+          onClick={() => setActiveTabIndex({ index: ActiveTab.Receive })}
         >
           <i className={buildClassName(styles.tabIcon, 'icon-receive')} aria-hidden />
-          <span>{lang('Receive')}</span>
+          <span className={styles.tabText}>{lang('Receive')}</span>
 
           <span className={styles.tabDecoration} aria-hidden />
-        </Button>
-        <Button
-          className={buildClassName(styles.tab, activeTabIndex === 1 && styles.active)}
-          isSimple
-          // eslint-disable-next-line react/jsx-no-bind
-          onClick={() => setActiveTabIndex({ index: 1 })}
+        </div>
+        <div
+          className={buildClassName(styles.tab, activeTabIndex === ActiveTab.Transfer && styles.active)}
+          onClick={() => setActiveTabIndex({ index: ActiveTab.Transfer })}
         >
           <i className={buildClassName(styles.tabIcon, 'icon-send')} aria-hidden />
-          <span>{lang('Send')}</span>
+          <span className={styles.tabText}>{lang('Send')}</span>
           <span className={styles.tabDecoration} aria-hidden />
           <span className={styles.tabDelimiter} aria-hidden />
-        </Button>
-        <Button className={buildClassName(styles.tab, hasStaking && styles.tab_purple)} onClick={onEarnClick} isSimple>
-          <i className={buildClassName(styles.tabIcon, 'icon-earn')} aria-hidden />
-          <span>{lang(isUnstakeRequested ? 'Unstaking' : (hasStaking ? 'Earning' : 'Earn'))}</span>
-          <span className={styles.tabDecoration} aria-hidden />
-        </Button>
+        </div>
+        {isSwapAllowed && (
+          <div
+            className={buildClassName(styles.tab, activeTabIndex === ActiveTab.Swap && styles.active)}
+            onClick={() => setActiveTabIndex({ index: ActiveTab.Swap })}
+          >
+            <i className={buildClassName(styles.tabIcon, 'icon-swap')} aria-hidden />
+            <span className={styles.tabText}>{lang('Swap')}</span>
+            <span className={styles.tabDecoration} aria-hidden />
+            <span className={styles.tabDelimiter} aria-hidden />
+          </div>
+        )}
+        {isStakingAllowed && (
+          <div
+            className={buildClassName(
+              styles.tab,
+              activeTabIndex === ActiveTab.Stake && styles.active,
+              isStaking && styles.tab_purple,
+            )}
+            onClick={() => setActiveTabIndex({ index: ActiveTab.Stake })}
+          >
+            <i className={buildClassName(styles.tabIcon, 'icon-earn')} aria-hidden />
+            <span className={styles.tabText}>
+              {lang(isUnstakeRequested ? 'Unstaking' : (hasStaking ? 'Earning' : 'Earn'))}
+            </span>
+            <span className={styles.tabDecoration} aria-hidden />
+            <span className={styles.tabDelimiter} aria-hidden />
+          </div>
+        )}
+
       </div>
 
       <div
         className={buildClassName(
           styles.contentHeader,
-          activeTabIndex === 0 && styles.firstActive,
-          activeTabIndex === TABS.length - 1 && styles.lastActive,
+          activeTabIndex === ActiveTab.Receive && styles.firstActive,
+          activeTabIndex === ActiveTab.Stake && styles.lastActive,
         )}
       >
-        <div className={styles.contentHeaderInner} />
+        <div className={buildClassName(styles.contentHeaderInner, isStaking && styles.contentSlideStaked)} />
       </div>
       {renderedBgHelpers}
 
@@ -120,8 +192,7 @@ function LandscapeActions({
         name="slideFade"
         activeKey={activeTabIndex}
         renderCount={TABS.length}
-        className={styles.slides}
-        slideClassName={buildClassName(styles.slide, 'custom-scroll')}
+        className={styles.transitionContent}
       >
         {renderCurrentTab}
       </Transition>
@@ -129,7 +200,7 @@ function LandscapeActions({
   );
 }
 
-function useTabHeightAnimation() {
+function useTabHeightAnimation(slideClassName: string, contentBackgroundClassName?: string, isUnstaking = false) {
   // eslint-disable-next-line no-null/no-null
   const transitionRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line no-null/no-null
@@ -139,50 +210,69 @@ function useTabHeightAnimation() {
 
   const lastHeightRef = useRef<number>();
 
-  const adjustBg = useCallback((noTransition = false) => {
-    const nextSlide = transitionRef.current!.querySelector<HTMLDivElement>(
-      `.${ACTIVE_SLIDE_CLASS_NAME}, .${TO_SLIDE_CLASS_NAME}`,
-    )!;
+  const suffix = isUnstaking ? ' .staking-info' : '';
+  // eslint-disable-next-line max-len
+  const query = `.${slideClassName}.${TO_SLIDE_CLASS_NAME}${suffix}, .${slideClassName}.${TO_SLIDE_CLASS_NAME}${suffix}, .${slideClassName}.${ACTIVE_SLIDE_CLASS_NAME}${suffix}, .${slideClassName}.${ACTIVE_SLIDE_CLASS_NAME}${suffix}`;
 
-    getBoundingClientRectsAsync(nextSlide).then((rect) => {
-      if (lastHeightRef.current !== rect.height && contentBgRef.current) {
-        if (noTransition) {
-          contentBgRef.current.style.transition = 'none';
-          contentFooterRef.current!.style.transition = 'none';
-        }
+  const adjustBg = useLastCallback((noTransition = false) => {
+    const slide = transitionRef.current?.querySelector(query)!;
+    const rect = slide.getBoundingClientRect();
+    const shouldRenderWithoutTransition = !lastHeightRef.current || noTransition;
 
-        contentBgRef.current.style.transform = `scaleY(calc(${rect.height} / 100))`;
-        contentFooterRef.current!.style.transform = `translateY(${rect.height}px)`;
+    if (lastHeightRef.current === rect.height || !contentBgRef.current) return;
 
-        if (noTransition) {
-          // For some reason, single `fastRaf` was not enough
-          fastRaf(() => {
-            fastRaf(() => {
-              contentBgRef.current!.style.transition = '';
-              contentFooterRef.current!.style.transition = '';
-            });
-          });
-        }
+    requestMutation(() => {
+      if (!contentBgRef.current || !contentFooterRef.current) return;
 
-        lastHeightRef.current = rect.height;
+      const contentBgStyle = contentBgRef.current.style;
+      const contentFooterStyle = contentFooterRef.current!.style;
+
+      if (shouldRenderWithoutTransition) {
+        contentBgStyle.transition = 'none';
+        contentFooterStyle.transition = 'none';
       }
-    });
-  }, []);
 
-  const lang = useLang();
+      contentBgStyle.transform = `scaleY(calc(${rect.height} / 100))`;
+      contentFooterStyle.transform = `translateY(${Math.floor(rect.height)}px)`;
+
+      if (shouldRenderWithoutTransition) {
+        requestMutation(() => {
+          if (!contentBgRef.current || !contentFooterRef.current) return;
+
+          contentBgRef.current.style.transition = '';
+          contentFooterRef.current.style.transition = '';
+        });
+      }
+
+      lastHeightRef.current = rect.height;
+    });
+  });
 
   useEffect(() => {
     adjustBg(true);
-  }, [adjustBg, lang]);
+
+    const componentObserver = new ResizeObserver((entries) => {
+      if (!entries.length) return;
+      adjustBg(false);
+    });
+
+    if (transitionRef.current) {
+      componentObserver.observe(transitionRef.current);
+    }
+
+    return () => {
+      componentObserver.disconnect();
+    };
+  }, [adjustBg]);
 
   const renderedBgHelpers = useMemo(() => {
     return (
       <>
-        <div ref={contentBgRef} className={styles.contentBg} />
-        <div ref={contentFooterRef} className={styles.contentFooter} />
+        <div ref={contentBgRef} className={buildClassName(styles.contentBg, contentBackgroundClassName)} />
+        <div ref={contentFooterRef} className={buildClassName(styles.contentFooter, contentBackgroundClassName)} />
       </>
     );
-  }, []);
+  }, [contentBackgroundClassName]);
 
   return {
     renderedBgHelpers,
@@ -192,9 +282,16 @@ function useTabHeightAnimation() {
 }
 
 export default memo(
-  withGlobal<OwnProps>((global): StateProps => {
-    const activeTabIndex = selectLandscapeActionsActiveTabIndex(global);
+  withGlobal<OwnProps>(
+    (global): StateProps => {
+      const accountState = selectAccountState(global, global.currentAccountId!) ?? {};
 
-    return { activeTabIndex };
-  })(LandscapeActions),
+      return {
+        activeTabIndex: accountState?.landscapeActionsActiveTabIndex,
+        isTestnet: global.settings.isTestnet,
+        isSwapDisabled: global.restrictions.isSwapDisabled,
+      };
+    },
+    (global, _, stickToFirst) => stickToFirst(global.currentAccountId),
+  )(LandscapeActions),
 );

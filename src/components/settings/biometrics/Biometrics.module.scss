@@ -1,0 +1,45 @@
+.modalDialog {
+  height: 37rem;
+
+  @supports (height: env(safe-area-inset-bottom)) {
+    height: calc(37rem + env(safe-area-inset-bottom));
+  }
+
+  @media (min-width: 416.01px) {
+    max-width: 24rem;
+  }
+}
+
+.sticker {
+  margin: 0 auto 1.25rem;
+}
+
+.stickerHuge {
+  margin-top: 2rem;
+}
+
+.error,
+.step {
+  align-self: center;
+
+  padding: 0.5625rem 0.75rem;
+
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3125rem;
+  text-align: center;
+
+  border-radius: var(--border-radius-buttons);
+}
+
+.step {
+  color: var(--light-gray-1);
+
+  background-color: var(--color-gray-button-background-light);
+}
+
+.error {
+  color: var(--color-transaction-red-text);
+
+  background-color: var(--color-transaction-red-background);
+}

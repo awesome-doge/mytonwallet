@@ -10,6 +10,8 @@
 }
 
 .appSlide {
+  --background-color: var(--color-background-second);
+
   background: var(--color-background-second);
 
   /* These styles need to be applied via regular CSS and not as conditional class, since Transition does not work well when `slideClassName` updates */
@@ -18,10 +20,20 @@
     overflow-x: hidden;
   }
 
-  /* stylelint-disable-next-line order/order, at-rule-empty-line-before */
   @include respond-below(xs) {
     overflow: auto;
     overflow-x: hidden;
+  }
+}
+
+.appSlide.appSlideTransparent {
+  background: transparent !important;
+
+  transition: background-color 150ms;
+  transition-delay: 350ms;
+
+  :global(html.is-ios) & {
+    transition-delay: 650ms;
   }
 }
 
@@ -31,24 +43,17 @@
     overflow-y: scroll;
   }
 
-  /* stylelint-disable-next-line order/order, at-rule-empty-line-before */
   @include respond-below(xs) {
     overflow-y: scroll;
   }
+
+  @supports (padding-top: env(safe-area-inset-top)) {
+    padding-top: env(safe-area-inset-top);
+  }
 }
 
-.transitionContainer {
-  :global(html.is-electron) & {
-    height: calc(100% - 3rem);
-  }
-
-  /* stylelint-disable-next-line order/order, at-rule-empty-line-before */
-  @include respond-below(xs) {
-    overflow: hidden;
-
-    max-width: 25rem;
-    margin: 0 auto;
-  }
+:global(html.is-electron) .transitionContainer {
+  height: calc(100% - 3rem);
 }
 
 .loading {

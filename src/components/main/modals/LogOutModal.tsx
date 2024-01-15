@@ -1,17 +1,19 @@
 import React, {
-  memo, useCallback, useEffect, useMemo, useState,
+  memo, useEffect, useMemo, useState,
 } from '../../../lib/teact/teact';
+import { getActions, withGlobal } from '../../../global';
 
 import type { Account, AccountState } from '../../../global/types';
 
 import { MNEMONIC_COUNT } from '../../../config';
-import { getActions, withGlobal } from '../../../global';
 import renderText from '../../../global/helpers/renderText';
 import { selectCurrentAccountState, selectNetworkAccounts } from '../../../global/selectors';
 import buildClassName from '../../../util/buildClassName';
 import { shortenAddress } from '../../../util/shortenAddress';
+import { IS_IOS_APP } from '../../../util/windowEnvironment';
 
 import useLang from '../../../hooks/useLang';
+import useLastCallback from '../../../hooks/useLastCallback';
 
 import Button from '../../ui/Button';
 import Checkbox from '../../ui/Checkbox';
@@ -22,8 +24,7 @@ import styles from './LogOutModal.module.scss';
 
 interface OwnProps {
   isOpen?: boolean;
-  onLogOut: NoneToVoidFunction;
-  onClose: NoneToVoidFunction;
+  onClose: (shouldCloseSettings: boolean) => void;
 }
 
 interface StateProps {
@@ -46,7 +47,6 @@ function LogOutModal({
   accounts,
   accountStates,
   isBackupRequired,
-  onLogOut,
   onClose,
 }: OwnProps & StateProps) {
   const { signOut, switchAccount } = getActions();
@@ -78,14 +78,18 @@ function LogOutModal({
   }, [isOpen]);
 
   const handleSwitchAccount = (accountId: string) => {
-    onClose();
+    onClose(false);
     switchAccount({ accountId });
   };
 
-  const handleLogOut = useCallback(() => {
-    onLogOut();
+  const handleLogOut = useLastCallback(() => {
+    onClose(!isLogOutFromAllAccounts && hasManyAccounts);
     signOut({ isFromAllAccounts: isLogOutFromAllAccounts });
-  }, [onLogOut, isLogOutFromAllAccounts, signOut]);
+  });
+
+  const handleClose = useLastCallback(() => {
+    onClose(false);
+  });
 
   function renderAccountLink(account: LinkAccount, idx: number) {
     const { id, title } = account;
@@ -134,7 +138,12 @@ function LogOutModal({
   const shouldRenderWarningForCurrentAccount = isBackupRequired && !shouldRenderWarningForAnotherAccounts;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} onCloseAnimationEnd={onClose} title={lang('Log Out')}>
+    <Modal
+      isOpen={isOpen}
+      isCompact
+      title={IS_IOS_APP ? lang('Remove Wallet') : lang('Log Out')}
+      onClose={handleClose}
+    >
       <p className={buildClassName(modalStyles.text, modalStyles.text_noExtraMargin)}>
         {renderText(lang('$logout_warning', MNEMONIC_COUNT))}
       </p>
@@ -153,11 +162,11 @@ function LogOutModal({
       {shouldRenderWarningForAnotherAccounts && renderBackupForAccountsWarning()}
 
       <div className={modalStyles.buttons}>
-        <Button onClick={onClose} className={modalStyles.button}>
+        <Button onClick={handleClose} className={modalStyles.button}>
           {lang('Cancel')}
         </Button>
         <Button isDestructive onClick={handleLogOut} className={modalStyles.button}>
-          {lang('Exit')}
+          {IS_IOS_APP ? lang('Remove Wallet') : lang('Exit')}
         </Button>
       </div>
     </Modal>

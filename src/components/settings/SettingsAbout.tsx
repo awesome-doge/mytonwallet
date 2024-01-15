@@ -1,11 +1,14 @@
 import React, { memo } from '../../lib/teact/teact';
 
-import { APP_NAME, APP_VERSION } from '../../config';
+import {
+  APP_ENV_MARKER, APP_NAME, APP_VERSION, IS_EXTENSION,
+} from '../../config';
 import renderText from '../../global/helpers/renderText';
 import buildClassName from '../../util/buildClassName';
-import { IS_EXTENSION } from '../../util/windowEnvironment';
 
+import useHistoryBack from '../../hooks/useHistoryBack';
 import useLang from '../../hooks/useLang';
+import useScrolledState from '../../hooks/useScrolledState';
 
 import Button from '../ui/Button';
 import Emoji from '../ui/Emoji';
@@ -16,19 +19,35 @@ import styles from './Settings.module.scss';
 import logoSrc from '../../assets/logo.svg';
 
 interface OwnProps {
+  isActive?: boolean;
   handleBackClick: () => void;
   isInsideModal?: boolean;
 }
 
-function SettingsAbout({ handleBackClick, isInsideModal }: OwnProps) {
+function SettingsAbout({ isActive, handleBackClick, isInsideModal }: OwnProps) {
   const lang = useLang();
 
+  useHistoryBack({
+    isActive,
+    onBack: handleBackClick,
+  });
+
+  const {
+    handleScroll: handleContentScroll,
+    isScrolled,
+  } = useScrolledState();
+
   return (
-    <div className={buildClassName(styles.slide, 'custom-scroll')}>
+    <div className={styles.slide}>
       {isInsideModal ? (
-        <ModalHeader title={lang('About')} onBackButtonClick={handleBackClick} />
+        <ModalHeader
+          title={lang('About')}
+          withNotch={isScrolled}
+          onBackButtonClick={handleBackClick}
+          className={styles.modalHeader}
+        />
       ) : (
-        <div className={styles.header}>
+        <div className={buildClassName(styles.header, 'with-notch-on-scroll', isScrolled && 'is-scrolled')}>
           <Button isSimple isText onClick={handleBackClick} className={styles.headerBack}>
             <i className={buildClassName(styles.iconChevron, 'icon-chevron-left')} aria-hidden />
             <span>{lang('Back')}</span>
@@ -36,15 +55,22 @@ function SettingsAbout({ handleBackClick, isInsideModal }: OwnProps) {
           <span className={styles.headerTitle}>{lang('About')}</span>
         </div>
       )}
-      <div className={styles.content}>
+      <div
+        className={buildClassName(
+          styles.content,
+          isInsideModal && 'custom-scroll',
+          !isInsideModal && styles.content_noScroll,
+        )}
+        onScroll={isInsideModal ? handleContentScroll : undefined}
+      >
         <img src={logoSrc} alt={lang('Logo')} className={styles.logo} />
         <h2 className={styles.title}>
-          {APP_NAME} {APP_VERSION}
+          {APP_NAME} {APP_VERSION} {APP_ENV_MARKER}
           <a href="https://mytonwallet.io/" target="_blank" className={styles.titleLink} rel="noreferrer">
             mytonwallet.io
           </a>
         </h2>
-        <div className={styles.blockAbout}>
+        <div className={buildClassName(styles.blockAbout, !isInsideModal && 'custom-scroll')}>
           <p className={styles.text}>
             {renderText(lang('$about_description1'))}
           </p>
@@ -96,7 +122,7 @@ function SettingsAbout({ handleBackClick, isInsideModal }: OwnProps) {
             </>
           )}
           <h3 className={buildClassName(styles.text, styles.heading)}>
-            <i className={buildClassName(styles.github, 'icon-github')} /> {lang('Is it open source?')}
+            <i className={buildClassName(styles.github, 'icon-github')} aria-hidden /> {lang('Is it open source?')}
           </h3>
           <p className={styles.text}>
             {lang('$about_wallet_github', {
@@ -108,7 +134,10 @@ function SettingsAbout({ handleBackClick, isInsideModal }: OwnProps) {
             })}
           </p>
           <h3 className={styles.heading}>
-            <i className={buildClassName(styles.telegram, 'icon-telegram')} /> {lang('Is there a community?')}
+            <i
+              className={buildClassName(styles.telegram, 'icon-telegram')}
+              aria-hidden
+            /> {lang('Is there a community?')}
           </h3>
           <p className={styles.text}>
             {lang('$about_wallet_community', {
@@ -123,6 +152,23 @@ function SettingsAbout({ handleBackClick, isInsideModal }: OwnProps) {
               ),
             })}
           </p>
+        </div>
+        <div className={styles.aboutFooterWrapper}>
+          <div className={styles.aboutFooterContent}>
+            <a
+              href="https://mytonwallet.io/terms-of-use"
+              target="_blank"
+              rel="noreferrer"
+            >{lang('Terms of Use')}
+            </a>
+            <i className={styles.dotLarge} aria-hidden />
+            <a
+              href="https://mytonwallet.io/privacy-policy"
+              target="_blank"
+              rel="noreferrer"
+            >{lang('Privacy Policy')}
+            </a>
+          </div>
         </div>
       </div>
     </div>

@@ -7,6 +7,11 @@ extraMetadata:
 files:
   - "dist"
   - "package.json"
+  - "public/icon-electron-windows.ico"
+  - "!dist/get"
+  - "!dist/**/statoscope-build-statistics.json"
+  - "!dist/**/statoscope-report.html"
+  - "!dist/**/statoscope-reference.json"
   - "!node_modules"
 directories:
   buildResources: "./public"
@@ -14,14 +19,20 @@ directories:
 protocols:
   - name: "Ton"
     schemes: ["ton"]
+  - name: "TonConnect"
+    schemes: ["tc"]
 publish:
   provider: "github"
   owner: "mytonwalletorg"
   repo: "mytonwallet"
-  releaseType: "release"
+  releaseType: "draft"
 win:
   target: "nsis"
   icon: "public/icon-electron-windows.ico"
+nsis:
+  oneClick: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
 mac:
   target:
     target: "default"

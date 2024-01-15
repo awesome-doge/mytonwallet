@@ -4,19 +4,28 @@
 
 @import "brilliant-icons";
 
+@import "mixins";
+
 html, body {
   overflow: hidden;
+  overscroll-behavior: none;
 
   width: 100%;
   height: 100%;
   margin: 0;
   padding: 0;
 
-  background: var(--color-background-first);
+  background-color: var(--color-app-background);
+
+  transition: background-color 350ms;
+
+  @include respond-below(xs) {
+    height: calc(var(--vh, 1vh) * 100);
+  }
 }
 
 body {
-  overflow: hidden;
+  user-select: none;
 
   font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Apple Color Emoji", "Segoe UI", Oxygen, Ubuntu, Cantarell,
   "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
@@ -28,10 +37,10 @@ body {
 
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
 
-  @media (max-width: 700px) {
-    height: calc(var(--vh, 1vh) * 100);
-  }
+html.theme-dark {
+  color-scheme: dark;
 }
 
 html.is-ios body,
@@ -39,10 +48,17 @@ html.is-macos body {
   font-family: 'Nunito', system-ui, -apple-system, BlinkMacSystemFont, "Roboto", "Apple Color Emoji", "Helvetica Neue", sans-serif;
 }
 
-#root {
-  height: 100%;
+html.is-electron {
+  --custom-cursor: default;
+}
 
-  background: var(--color-background-second);
+// Required for closing over scrollable content (scroll tracking)
+html.is-native-bottom-sheet {
+  overflow: auto;
+
+  body {
+    overflow: auto;
+  }
 }
 
 #root,
@@ -92,7 +108,7 @@ html.is-macos body {
   }
 }
 
-body:not(.is-ios) {
+html:not(.is-ios) {
   .custom-scroll {
     &::-webkit-scrollbar {
       width: 0.375rem;
@@ -121,7 +137,7 @@ body:not(.is-ios) {
 }
 
 div[role="button"] {
-  cursor: pointer;
+  cursor: var(--custom-cursor, pointer);
 
   outline: none !important;
 }
@@ -156,4 +172,30 @@ a {
 
 .no-transitions * {
   transition: none !important;
+}
+
+.with-notch-on-scroll {
+  position: relative;
+
+  &::after {
+    content: '';
+
+    position: absolute;
+    bottom: 0;
+    left: 0;
+
+    width: 100%;
+    height: 0.0625rem;
+
+    opacity: 0;
+
+    /* stylelint-disable-next-line plugin/whole-pixel */
+    box-shadow: 0 0.035rem 0 0 var(--color-separator);
+
+    transition: opacity 200ms;
+  }
+
+  &.is-scrolled::after {
+    opacity: 1;
+  }
 }

@@ -1,20 +1,21 @@
-import type { Storage } from '../storages/types';
-import type { ApiDapp, OnApiUpdate } from '../types';
+import type {
+  ApiDapp, ApiDappsState, ApiNetwork, OnApiUpdate,
+} from '../types';
 
-import { getAccountValue, setAccountValue } from '../common/accounts';
-import { toInternalAccountId } from '../common/helpers';
-import { updateDapps } from '../dappMethods';
+import { buildAccountId, parseAccountId } from '../../util/account';
+import {
+  getAccountValue, removeAccountValue, removeNetworkAccountsValue, setAccountValue,
+} from '../common/accounts';
+import { isUpdaterAlive } from '../common/helpers';
+import { callHook } from '../hooks';
+import { storage } from '../storages';
 
-const DAPPS_STORAGE_KEY = 'dapps';
 const activeDappByAccountId: Record<string, string> = {};
 
 let onUpdate: OnApiUpdate;
-let storage: Storage;
 
-export function initDapps(_onUpdate: OnApiUpdate, _storage: Storage) {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function initDapps(_onUpdate: OnApiUpdate) {
   onUpdate = _onUpdate;
-  storage = _storage;
 }
 
 export function onActiveDappAccountUpdated(accountId: string) {
@@ -29,11 +30,19 @@ export function onActiveDappAccountUpdated(accountId: string) {
 
 export function activateDapp(accountId: string, origin: string) {
   const oldAccountId = findActiveDappAccount(origin);
-  if (oldAccountId && toInternalAccountId(oldAccountId) !== toInternalAccountId(accountId)) {
-    throw new Error(`The app '${origin}' is already connected to another account`);
+  activeDappByAccountId[accountId] = origin;
+
+  // The method can be called in headless mode (tonConnect:reconnect)
+  if (!onUpdate || !isUpdaterAlive(onUpdate)) {
+    return;
   }
 
-  activeDappByAccountId[accountId] = origin;
+  if (oldAccountId) {
+    onUpdate({
+      type: 'updateActiveDapp',
+      accountId: oldAccountId,
+    });
+  }
 
   onUpdate({
     type: 'updateActiveDapp',
@@ -69,10 +78,12 @@ export function deactivateAccountDapp(accountId: string) {
 
   delete activeDappByAccountId[accountId];
 
-  onUpdate({
-    type: 'updateActiveDapp',
-    accountId,
-  });
+  if (onUpdate && isUpdaterAlive(onUpdate)) {
+    onUpdate({
+      type: 'updateActiveDapp',
+      accountId,
+    });
+  }
 
   return true;
 }
@@ -96,23 +107,19 @@ export function isDappActive(accountId: string, origin: string) {
   return activeDappByAccountId[accountId] === origin;
 }
 
+export async function updateDapp(accountId: string, origin: string, updater: (dapp: ApiDapp) => ApiDapp) {
+  const dapp = await getDapp(accountId, origin);
+  await addDapp(accountId, updater(dapp!));
+}
+
+export async function getDapp(accountId: string, origin: string): Promise<ApiDapp | undefined> {
+  return (await getAccountValue(accountId, 'dapps'))[origin];
+}
+
 export async function addDapp(accountId: string, dapp: ApiDapp) {
   const dapps = await getDappsByOrigin(accountId);
   dapps[dapp.origin] = dapp;
-  await setAccountValue(storage, accountId, DAPPS_STORAGE_KEY, dapps);
-}
-
-export async function addDappToAccounts(dapp: ApiDapp, accountIds: string[]) {
-  const dappsByAccount = await storage.getItem(DAPPS_STORAGE_KEY) || {};
-
-  accountIds.forEach((accountId) => {
-    const internalId = toInternalAccountId(accountId);
-    const dapps = dappsByAccount[internalId] || {};
-    dapps[dapp.origin] = dapp;
-
-    dappsByAccount[internalId] = dapps;
-  });
-  await storage.setItem(DAPPS_STORAGE_KEY, dappsByAccount);
+  await setAccountValue(accountId, 'dapps', dapps);
 }
 
 export async function deleteDapp(accountId: string, origin: string, dontNotifyDapp?: boolean) {
@@ -126,20 +133,21 @@ export async function deleteDapp(accountId: string, origin: string, dontNotifyDa
   }
 
   delete dapps[origin];
-  await setAccountValue(storage, accountId, DAPPS_STORAGE_KEY, dapps);
+  await setAccountValue(accountId, 'dapps', dapps);
 
-  onUpdate({
-    type: 'dappDisconnect',
-    accountId,
-    origin,
-  });
-
-  if (!dontNotifyDapp) {
-    updateDapps({
-      type: 'disconnectDapp',
+  if (onUpdate && isUpdaterAlive(onUpdate)) {
+    onUpdate({
+      type: 'dappDisconnect',
+      accountId,
       origin,
     });
   }
+
+  if (!dontNotifyDapp) {
+    await callHook('onDappDisconnected', accountId, origin);
+  }
+
+  await callHook('onDappsChanged');
 
   return true;
 }
@@ -148,7 +156,7 @@ export async function deleteAllDapps(accountId: string) {
   deactivateAccountDapp(accountId);
 
   const origins = Object.keys(await getDappsByOrigin(accountId));
-  await setAccountValue(storage, accountId, DAPPS_STORAGE_KEY, {});
+  await setAccountValue(accountId, 'dapps', {});
 
   origins.forEach((origin) => {
     onUpdate({
@@ -156,7 +164,10 @@ export async function deleteAllDapps(accountId: string) {
       accountId,
       origin,
     });
+    callHook('onDappDisconnected', accountId, origin);
   });
+
+  await callHook('onDappsChanged');
 }
 
 export async function getDapps(accountId: string): Promise<ApiDapp[]> {
@@ -164,7 +175,7 @@ export async function getDapps(accountId: string): Promise<ApiDapp[]> {
 }
 
 export async function getDappsByOrigin(accountId: string): Promise<Record<string, ApiDapp>> {
-  return await getAccountValue(storage, accountId, DAPPS_STORAGE_KEY) || {};
+  return await getAccountValue(accountId, 'dapps') || {};
 }
 
 export async function isDappConnected(accountId: string, origin: string) {
@@ -173,9 +184,52 @@ export async function isDappConnected(accountId: string, origin: string) {
   return Object.values(dapps).some((dapp) => dapp.origin === origin);
 }
 
-export async function findConnectedDappAccounts(origin: string) {
-  const dapps = (await storage.getItem(DAPPS_STORAGE_KEY) || {}) as Record<string, Record<string, ApiDapp>>;
-  return Object.entries(dapps)
-    .filter(([, value]) => origin in value)
-    .map(([key]) => key);
+export async function findLastConnectedAccount(network: ApiNetwork, origin: string) {
+  const dapps = await getDappsState() || {};
+
+  let connectedAt = 0;
+  let lastConnectedAccountId: string | undefined;
+
+  Object.entries(dapps).forEach(([accountId, byOrigin]) => {
+    if (!(origin in byOrigin)) return;
+
+    if ((byOrigin[origin].connectedAt) > connectedAt) {
+      connectedAt = byOrigin[origin].connectedAt;
+      lastConnectedAccountId = accountId;
+    }
+  });
+
+  if (!lastConnectedAccountId) {
+    return undefined;
+  }
+
+  return buildAccountId({ ...parseAccountId(lastConnectedAccountId), network });
+}
+
+export function getDappsState(): Promise<ApiDappsState | undefined> {
+  return storage.getItem('dapps');
+}
+
+export async function removeAccountDapps(accountId: string) {
+  await removeAccountValue(accountId, 'dapps');
+
+  callHook('onDappsChanged');
+}
+
+export async function removeAllDapps() {
+  await storage.removeItem('dapps');
+
+  await callHook('onDappsChanged');
+}
+
+export function removeNetworkDapps(network: ApiNetwork) {
+  return removeNetworkAccountsValue(network, 'dapps');
+}
+
+export function getSseLastEventId(): Promise<string | undefined> {
+  return storage.getItem('sseLastEventId');
+}
+
+export function setSseLastEventId(lastEventId: string) {
+  return storage.setItem('sseLastEventId', lastEventId);
 }

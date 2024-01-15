@@ -1,11 +1,12 @@
 import React, {
-  memo, useCallback, useEffect, useRef, useState,
+  memo, useEffect, useRef, useState,
 } from '../../lib/teact/teact';
-
-import { TONSCAN_BASE_MAINNET_URL, TONSCAN_BASE_TESTNET_URL } from '../../config';
 import { getActions, withGlobal } from '../../global';
+
+import { IS_CAPACITOR, TONSCAN_BASE_MAINNET_URL, TONSCAN_BASE_TESTNET_URL } from '../../config';
 import { selectCurrentAccountState } from '../../global/selectors';
 import buildClassName from '../../util/buildClassName';
+import { vibrateOnSuccess } from '../../util/capacitor';
 import captureKeyboardListeners from '../../util/captureKeyboardListeners';
 import { copyTextToClipboard } from '../../util/clipboard';
 import { shortenAddress } from '../../util/shortenAddress';
@@ -13,11 +14,13 @@ import { shortenAddress } from '../../util/shortenAddress';
 import useFlag from '../../hooks/useFlag';
 import useFocusAfterAnimation from '../../hooks/useFocusAfterAnimation';
 import useLang from '../../hooks/useLang';
+import useLastCallback from '../../hooks/useLastCallback';
 
 import DeleteSavedAddressModal from '../main/modals/DeleteSavedAddressModal';
 import Button from './Button';
 import Input from './Input';
 import Modal from './Modal';
+import Transition from './Transition';
 
 import styles from './InteractiveTextField.module.scss';
 import modalStyles from './Modal.module.scss';
@@ -27,11 +30,13 @@ interface OwnProps {
   addressName?: string;
   text?: string;
   spoiler?: string;
-  viewSpoilerText?: string;
+  spoilerRevealText?: string;
+  spoilerCallback?: NoneToVoidFunction;
   copyNotification: string;
   className?: string;
   textClassName?: string;
   noSavedAddress?: boolean;
+  noExplorer?: boolean;
 }
 
 interface StateProps {
@@ -46,9 +51,11 @@ function InteractiveTextField({
   addressName,
   text,
   spoiler,
-  viewSpoilerText,
+  spoilerRevealText,
+  spoilerCallback,
   copyNotification,
   noSavedAddress,
+  noExplorer,
   className,
   textClassName,
   isAddressAlreadySaved,
@@ -62,7 +69,7 @@ function InteractiveTextField({
   const [isSaveAddressModalOpen, openSaveAddressModal, closeSaveAddressModal] = useFlag();
   const [isDeleteSavedAddressModalOpen, openDeletedSavedAddressModal, closeDeleteSavedAddressModal] = useFlag();
   const [savedAddressName, setSavedAddressName] = useState<string | undefined>(addressName);
-  const [shouldUseSpoiler, , viewSpoiler] = useFlag(Boolean(spoiler));
+  const [isConcealedWithSpoiler, , revealSpoiler] = useFlag(Boolean(spoiler));
 
   const tonscanBaseUrl = isTestnet ? TONSCAN_BASE_TESTNET_URL : TONSCAN_BASE_MAINNET_URL;
   const tonscanAddressUrl = address ? `${tonscanBaseUrl}address/${address}` : undefined;
@@ -73,15 +80,15 @@ function InteractiveTextField({
     }
   }, [isSaveAddressModalOpen]);
 
-  const handleSaveAddressSubmit = useCallback(() => {
+  const handleSaveAddressSubmit = useLastCallback(() => {
     if (!savedAddressName || !address) {
       return;
     }
 
     addSavedAddress({ address, name: savedAddressName });
-    showNotification({ message: 'Address was saved!', icon: 'icon-star' });
+    showNotification({ message: lang('Address was saved!'), icon: 'icon-star' });
     closeSaveAddressModal();
-  }, [addSavedAddress, address, closeSaveAddressModal, savedAddressName, showNotification]);
+  });
 
   useEffect(() => (
     isSaveAddressModalOpen
@@ -91,33 +98,49 @@ function InteractiveTextField({
       : undefined
   ), [handleSaveAddressSubmit, isSaveAddressModalOpen]);
 
-  useFocusAfterAnimation({
-    ref: addressNameRef,
-    isActive: isSaveAddressModalOpen,
+  useFocusAfterAnimation(addressNameRef, !isSaveAddressModalOpen);
+
+  const handleCopy = useLastCallback(() => {
+    showNotification({ message: copyNotification, icon: 'icon-copy' });
+    void copyTextToClipboard(address || text || '');
+    if (IS_CAPACITOR) {
+      void vibrateOnSuccess();
+    }
   });
 
-  const handleCopy = useCallback(() => {
-    showNotification({ message: copyNotification, icon: 'icon-copy' });
-    copyTextToClipboard(address || text || '');
-  }, [address, copyNotification, showNotification, text]);
+  const handleRevealSpoiler = useLastCallback(() => {
+    revealSpoiler();
+    spoilerCallback?.();
+  });
 
-  function renderTextOrSpoiler() {
-    if (shouldUseSpoiler) {
-      return (
-        <span className={buildClassName(styles.button, styles.button_spoiler, textClassName)}>
-          {spoiler}
-          <span
-            onClick={viewSpoiler}
-            tabIndex={0}
-            role="button"
-            className={styles.viewSpoiler}
-          >
-            {viewSpoilerText}
-          </span>
-        </span>
-      );
+  function renderContentOrSpoiler() {
+    const content = addressName || address || text;
+
+    if (!spoiler) {
+      return renderContent(content);
     }
 
+    const isConcealed = isConcealedWithSpoiler || !content;
+    return (
+      <Transition activeKey={isConcealed ? 1 : 0} name="fade" className={styles.commentContainer}>
+        {isConcealed ? (
+          <span className={buildClassName(styles.button, styles.button_spoiler, textClassName)}>
+            <i>{spoiler}</i>
+            <span
+              onClick={handleRevealSpoiler}
+              tabIndex={0}
+              role="button"
+              className={styles.revealSpoiler}
+            >
+              {spoilerRevealText}
+            </span>
+          </span>
+        ) : renderContent(content)}
+      </Transition>
+    );
+  }
+
+  function renderContent(content?: string) {
     return (
       <span
         className={buildClassName(styles.button, textClassName)}
@@ -126,7 +149,7 @@ function InteractiveTextField({
         tabIndex={0}
         role="button"
       >
-        {addressName || address || text}
+        {content}
         {Boolean(addressName) && (
           <span className={styles.shortAddress}>{shortenAddress(address!)}</span>
         )}
@@ -171,7 +194,7 @@ function InteractiveTextField({
   return (
     <>
       <div className={buildClassName(styles.wrapper, className)}>
-        {renderTextOrSpoiler()}
+        {renderContentOrSpoiler()}
 
         {!noSavedAddress && address && (
           <span
@@ -192,7 +215,7 @@ function InteractiveTextField({
           </span>
         )}
 
-        {address && (
+        {!noExplorer && address && (
           <a
             href={tonscanAddressUrl}
             className={styles.button}

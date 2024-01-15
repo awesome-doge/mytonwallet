@@ -1,27 +1,24 @@
-import TonWeb from 'tonweb';
-import React, {
-  memo, useCallback, useMemo, useState,
-} from '../../lib/teact/teact';
+import React, { memo, useMemo, useState } from '../../lib/teact/teact';
+import { withGlobal } from '../../global';
 
 import type { UserToken } from '../../global/types';
+import type { DropdownItem } from '../ui/Dropdown';
 
 import { TON_TOKEN_SLUG } from '../../config';
-import { withGlobal } from '../../global';
 import { humanToBigStr } from '../../global/helpers';
 import renderText from '../../global/helpers/renderText';
 import { selectAccount, selectCurrentAccountTokens } from '../../global/selectors';
 import buildClassName from '../../util/buildClassName';
+import formatTransferUrl from '../../util/ton/formatTransferUrl';
 import { ASSET_LOGO_PATHS } from '../ui/helpers/assetLogos';
 
 import useLang from '../../hooks/useLang';
+import useLastCallback from '../../hooks/useLastCallback';
 
-import Button from '../ui/Button';
-import type { DropDownItem } from '../ui/DropDown';
-import DropDown from '../ui/DropDown';
+import Dropdown from '../ui/Dropdown';
 import Input from '../ui/Input';
 import InteractiveTextField from '../ui/InteractiveTextField';
 import Modal from '../ui/Modal';
-import ModalTransitionContent from '../ui/ModalTransitionContent';
 import RichNumberInput from '../ui/RichNumberInput';
 
 import styles from './ReceiveModal.module.scss';
@@ -32,18 +29,14 @@ interface StateProps {
 }
 
 type OwnProps = {
-  backButtonText?: string;
   isOpen: boolean;
-  onBackButtonClick: () => void;
   onClose: () => void;
 };
 
 function InvoiceModal({
   address,
-  backButtonText = 'Back',
   isOpen,
   tokens,
-  onBackButtonClick,
   onClose,
 }: StateProps & OwnProps) {
   const lang = useLang();
@@ -53,14 +46,14 @@ function InvoiceModal({
   const [hasAmountError, setHasAmountError] = useState<boolean>(false);
 
   const invoiceAmount = amount ? humanToBigStr(amount) : undefined;
-  const invoiceUrl = address ? TonWeb.utils.formatTransferUrl(address, invoiceAmount, comment) : '';
+  const invoiceUrl = address ? formatTransferUrl(address, invoiceAmount, comment) : '';
 
-  const dropDownItems = useMemo(() => {
+  const dropdownItems = useMemo(() => {
     if (!tokens) {
       return [];
     }
 
-    return tokens.reduce<DropDownItem[]>((acc, token) => {
+    return tokens.reduce<DropdownItem[]>((acc, token) => {
       if (token.slug === TON_TOKEN_SLUG) {
         acc.push({
           value: token.slug,
@@ -73,7 +66,7 @@ function InvoiceModal({
     }, []);
   }, [tokens]);
 
-  const handleAmountInput = useCallback((value?: number) => {
+  const handleAmountInput = useLastCallback((value?: number) => {
     setHasAmountError(false);
 
     if (value === undefined) {
@@ -87,39 +80,50 @@ function InvoiceModal({
     }
 
     setAmount(value);
-  }, []);
+  });
 
   function renderTokens() {
-    return <DropDown items={dropDownItems} selectedValue={TON_TOKEN_SLUG} className={styles.tokenDropDown} />;
+    return <Dropdown items={dropdownItems} selectedValue={TON_TOKEN_SLUG} className={styles.tokenDropdown} />;
   }
 
   return (
-    <Modal isSlideUp hasCloseButton title={lang('Create Invoice')} isOpen={isOpen} onClose={onClose}>
-      <ModalTransitionContent className={styles.contentInvoice}>
-        <div className={buildClassName(styles.info, styles.info_push)}>
-          {renderText(lang('$receive_invoice_description'))}
-        </div>
-        <RichNumberInput
-          key="amount"
-          id="amount"
-          hasError={hasAmountError}
-          value={amount}
-          labelText={lang('Amount')}
-          onChange={handleAmountInput}
-        >
-          {renderTokens()}
-        </RichNumberInput>
-        <Input value={comment} onInput={setComment} labelText={lang('Comment')} placeholder={lang('Optional')} />
+    <Modal
+      isOpen={isOpen}
+      hasCloseButton
+      title={lang('Deposit Link')}
+      contentClassName={styles.content}
+      nativeBottomSheetKey="invoice"
+      onClose={onClose}
+    >
+      <div className={styles.contentTitle}>
+        {renderText(lang('$receive_invoice_description'))}
+      </div>
+      <RichNumberInput
+        key="amount"
+        id="amount"
+        hasError={hasAmountError}
+        value={amount}
+        labelText={lang('Amount')}
+        onChange={handleAmountInput}
+      >
+        {renderTokens()}
+      </RichNumberInput>
+      <Input
+        value={comment}
+        label={lang('Comment')}
+        placeholder={lang('Optional')}
+        wrapperClassName={styles.invoiceComment}
+        onInput={setComment}
+      />
 
-        <p className={buildClassName(styles.description, styles.description_forInvoice)}>
-          {lang('Share this URL to receive TON')}
-        </p>
-        <InteractiveTextField text={invoiceUrl} copyNotification={lang('Invoice link was copied!')} />
-
-        <div className={styles.buttons}>
-          <Button onClick={onBackButtonClick}>{backButtonText ?? lang('Back')}</Button>
-        </div>
-      </ModalTransitionContent>
+      <p className={buildClassName(styles.label, styles.labelForInvoice)}>
+        {lang('Share this URL to receive TON')}
+      </p>
+      <InteractiveTextField
+        text={invoiceUrl}
+        copyNotification={lang('Invoice link was copied!')}
+        className={styles.invoiceLinkField}
+      />
     </Modal>
   );
 }

@@ -1,6 +1,6 @@
 import type { FormEvent } from 'react';
 import React, {
-  memo, useCallback, useEffect, useState,
+  memo, useEffect, useState,
 } from '../../lib/teact/teact';
 
 import { MNEMONIC_CHECK_COUNT } from '../../config';
@@ -8,7 +8,9 @@ import renderText from '../../global/helpers/renderText';
 import buildClassName from '../../util/buildClassName';
 import { areSortedArraysEqual } from '../../util/iteratees';
 
+import useHistoryBack from '../../hooks/useHistoryBack';
 import useLang from '../../hooks/useLang';
+import useLastCallback from '../../hooks/useLastCallback';
 
 import InputMnemonic from '../common/InputMnemonic';
 import Button from '../ui/Button';
@@ -42,14 +44,19 @@ function MnemonicCheck({
     }
   }, [isActive]);
 
-  const handleSetWord = useCallback((value: string, index: number) => {
+  useHistoryBack({
+    isActive,
+    onBack: onCancel,
+  });
+
+  const handleSetWord = useLastCallback((value: string, index: number) => {
     setWords({
       ...words,
       [index]: value?.toLowerCase(),
     });
-  }, [words]);
+  });
 
-  const handleMnemonicCheckSubmit = useCallback((e: FormEvent) => {
+  const handleMnemonicCheckSubmit = useLastCallback((e: FormEvent) => {
     e.preventDefault();
     const answer = mnemonic && checkIndexes?.map((index) => mnemonic[index]);
     if (answer && areSortedArraysEqual(answer, Object.values(words))) {
@@ -57,7 +64,7 @@ function MnemonicCheck({
     } else {
       setHasMnemonicError(true);
     }
-  }, [onSubmit, checkIndexes, mnemonic, words]);
+  });
 
   return (
     <div className={modalStyles.transitionContentWrapper}>
@@ -95,8 +102,8 @@ function MnemonicCheck({
         )}
 
         <div className={modalStyles.buttons}>
-          <Button onClick={onCancel}>{lang('Back')}</Button>
-          <Button isPrimary forFormId="check_mnemonic_form">{buttonLabel}</Button>
+          <Button onClick={onCancel} className={modalStyles.button}>{lang('Back')}</Button>
+          <Button isPrimary forFormId="check_mnemonic_form" className={modalStyles.button}>{buttonLabel}</Button>
         </div>
       </div>
     </div>

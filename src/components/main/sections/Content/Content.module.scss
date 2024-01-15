@@ -1,11 +1,10 @@
+@import "../../../../styles/mixins";
+
+.contentPanel,
 .container {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-
-  &.portraitContainer {
-    flex: 1 1 auto;
-  }
 
   &.landscapeContainer {
     overflow: hidden;
@@ -20,22 +19,64 @@
 
   background: var(--color-background-first);
   border-radius: var(--border-radius-default);
+
+  .portraitContainer & {
+    width: 100%;
+    max-width: 27rem;
+    margin: 0 auto 1rem;
+  }
 }
 
 .tabs {
   position: relative;
   z-index: 1;
 
-  padding: 0 1.75rem;
-
-  border-radius: var(--border-radius-default) var(--border-radius-default) 0 0;
-  /* stylelint-disable-next-line plugin/whole-pixel */
-  box-shadow: 0 0.025rem 0 0 var(--color-separator);
+  height: 2.75rem;
+  padding: 0 2.5rem;
 
   .landscapeContainer & {
     justify-content: flex-start;
 
     padding: 0 0.75rem;
+
+    border-radius: var(--border-radius-default) var(--border-radius-default) 0 0;
+    /* stylelint-disable-next-line plugin/whole-pixel */
+    box-shadow: 0 0.025rem 0 0 var(--color-separator);
+  }
+
+  .portraitContainer & {
+    position: sticky;
+    top: 3.75rem;
+
+    overflow: visible;
+
+    width: 100%;
+    max-width: 27rem;
+    margin: 0 auto;
+
+    &::after {
+      content: '';
+
+      position: absolute;
+      bottom: 0.0625rem;
+      left: 50%;
+      transform: translateX(-50%);
+
+      width: 100vw;
+      height: 0.0625rem;
+
+      /* stylelint-disable-next-line plugin/whole-pixel */
+      box-shadow: 0 0.025rem 0 0 var(--color-separator);
+    }
+
+    :global(html.with-safe-area-top) & {
+      top: 2.625rem;
+    }
+
+    // Fix for opera, dead zone of 37 pixels in extension window on windows
+    :global(html.is-windows.is-opera.is-extension) & {
+      top: 4.75rem;
+    }
   }
 }
 
@@ -55,13 +96,19 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
 
   background: var(--color-background-first);
   border-radius: 0 0 var(--border-radius-default) var(--border-radius-default);
 
   .landscapeContainer & {
     flex-grow: 1;
+  }
+
+  @include respond-below(xs) {
+    @supports (padding-bottom: env(safe-area-inset-bottom)) {
+      padding-bottom: env(safe-area-inset-bottom) !important;
+    }
   }
 }
 
@@ -74,7 +121,22 @@
   .slides {
     flex: 1 1 auto;
 
-    border-radius: 0;
+    max-width: 27rem;
+    min-height: calc(100vh - 6.5rem) !important;
+    margin: 0 auto;
+
+    :global(html.with-safe-area-top) & {
+      min-height: calc(100vh - 5.375rem - var(--status-bar-height, 0px)) !important;
+    }
+
+    // Fix for opera, dead zone of 37 pixels in extension window on windows
+    :global(html.is-windows.is-opera.is-extension) & {
+      min-height: calc(100vh - 7.5rem) !important;
+    }
+
+    :global(html:not(.with-safe-area-bottom)) & {
+      border-radius: 0;
+    }
   }
 
   .slide {
@@ -83,4 +145,14 @@
 
     min-height: 0;
   }
+}
+
+.contentPanel {
+  position: relative;
+
+  flex-grow: 1;
+
+  margin: 0 -0.75rem;
+
+  background: var(--color-background-first);
 }
