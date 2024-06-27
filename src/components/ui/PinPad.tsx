@@ -10,6 +10,7 @@ import { IS_DELEGATED_BOTTOM_SHEET } from '../../util/windowEnvironment';
 
 import useEffectWithPrevDeps from '../../hooks/useEffectWithPrevDeps';
 import useLastCallback from '../../hooks/useLastCallback';
+import usePrevious from '../../hooks/usePrevious';
 
 import PinPadButton from './PinPadButton';
 
@@ -52,14 +53,22 @@ function PinPad({
 
   const isFaceId = getIsFaceIdAvailable();
   const canRenderBackspace = value.length > 0;
-  const arePinButtonsDisabled = value.length === length
-    && type !== 'error'; // Allow pincode entry in case of an error
   const isSuccess = type === 'success' || isPinAccepted;
+  const prevIsPinAccepted = usePrevious(isPinAccepted);
+  const arePinButtonsDisabled = isSuccess
+    || (value.length === length && type !== 'error'); // Allow pincode entry in case of an error
+
   const titleClassName = buildClassName(
     styles.title,
     type === 'error' && styles.error,
     isSuccess && styles.success,
   );
+
+  useEffect(() => {
+    if (prevIsPinAccepted && !isPinAccepted && length === value.length) {
+      onChange('');
+    }
+  }, [isPinAccepted, length, onChange, prevIsPinAccepted, value.length]);
 
   useEffect(() => {
     return () => {
@@ -94,9 +103,12 @@ function PinPad({
   }, [length, onChange, onClearError, type, value.length]);
 
   const handleClick = useLastCallback((char: string) => {
+    if (value.length === length || value.length === 0) {
+      onClearError?.();
+    }
+
     if (value.length === length) {
       onChange(char);
-      onClearError?.();
 
       return;
     }

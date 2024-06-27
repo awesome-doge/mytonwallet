@@ -3,18 +3,19 @@ import React, {
 } from '../../../../lib/teact/teact';
 import { getActions, withGlobal } from '../../../../global';
 
-import { ElectronEvent } from '../../../../electron/types';
+import type { ApiNft } from '../../../../api/types';
 import { ActiveTab } from '../../../../global/types';
 
-import { DEFAULT_LANDSCAPE_ACTION_TAB_ID } from '../../../../config';
+import { DEFAULT_LANDSCAPE_ACTION_TAB_ID, TONCOIN_SLUG } from '../../../../config';
 import { requestMutation } from '../../../../lib/fasterdom/fasterdom';
 import { selectAccountState } from '../../../../global/selectors';
 import buildClassName from '../../../../util/buildClassName';
-import { ReceiveStatic } from '../../../receive';
 
 import useLang from '../../../../hooks/useLang';
 import useLastCallback from '../../../../hooks/useLastCallback';
+import useSyncEffect from '../../../../hooks/useSyncEffect';
 
+import AddBuyStatic from '../../../addbuy/AddBuyStatic';
 import StakingInfoContent from '../../../staking/StakingInfoContent';
 import StakingInitial from '../../../staking/StakingInitial';
 import SwapInitial from '../../../swap/SwapInitial';
@@ -22,8 +23,6 @@ import TransferInitial from '../../../transfer/TransferInitial';
 import Transition, { ACTIVE_SLIDE_CLASS_NAME, TO_SLIDE_CLASS_NAME } from '../../../ui/Transition';
 
 import styles from './LandscapeActions.module.scss';
-
-const TABS = [ActiveTab.Receive, ActiveTab.Transfer, ActiveTab.Swap, ActiveTab.Stake];
 
 interface OwnProps {
   hasStaking?: boolean;
@@ -33,19 +32,29 @@ interface OwnProps {
 
 interface StateProps {
   activeTabIndex?: ActiveTab;
+  nfts?: ApiNft[];
+  tokenSlug: string;
   isTestnet?: boolean;
   isSwapDisabled: boolean;
+  isOnRampDisabled: boolean;
 }
+
+const TABS = [ActiveTab.Receive, ActiveTab.Transfer, ActiveTab.Swap, ActiveTab.Stake];
+let activeTransferKey = 0;
 
 function LandscapeActions({
   hasStaking,
   activeTabIndex = DEFAULT_LANDSCAPE_ACTION_TAB_ID,
   isUnstakeRequested,
+  nfts,
+  tokenSlug,
   isTestnet,
   isLedger,
   isSwapDisabled,
+  isOnRampDisabled,
 }: OwnProps & StateProps) {
   const { setLandscapeActionsActiveTabIndex: setActiveTabIndex } = getActions();
+
   const lang = useLang();
 
   const isStaking = activeTabIndex === ActiveTab.Stake && (hasStaking || isUnstakeRequested);
@@ -60,8 +69,18 @@ function LandscapeActions({
   );
 
   const isSwapAllowed = !isTestnet && !isLedger && !isSwapDisabled;
-  const isStakingAllowed = !isTestnet && !isLedger;
+  const isOnRampAllowed = !isTestnet && !isOnRampDisabled;
+
+  const isStakingAllowed = !isTestnet;
   const areNotAllTabs = !isSwapAllowed || !isStakingAllowed;
+  const isLastTab = (!isStakingAllowed && !isSwapAllowed && activeTabIndex === ActiveTab.Transfer)
+    || (!isStakingAllowed && isSwapAllowed && activeTabIndex === ActiveTab.Swap)
+    || (isStakingAllowed && activeTabIndex === ActiveTab.Stake);
+  const transferKey = useMemo(() => nfts?.map((nft) => nft.address).join(',') || tokenSlug, [nfts, tokenSlug]);
+
+  useSyncEffect(() => {
+    activeTransferKey += 1;
+  }, [transferKey]);
 
   useEffect(() => {
     if (
@@ -72,15 +91,31 @@ function LandscapeActions({
     }
   }, [activeTabIndex, isTestnet, isLedger, isSwapAllowed, isStakingAllowed]);
 
-  function renderCurrentTab(isActive: boolean) {
+  function renderCurrentTab(isActive: boolean, isPrev: boolean) {
     switch (activeTabIndex) {
       case ActiveTab.Receive:
-        return <ReceiveStatic className={styles.slideContent} />;
+        return (
+          <AddBuyStatic
+            className={styles.slideContent}
+            isStatic
+            isTestnet={isTestnet}
+            isLedger={isLedger}
+            isSwapDisabled={isSwapDisabled}
+            isOnRampDisabled={isOnRampDisabled}
+          />
+        );
 
       case ActiveTab.Transfer:
         return (
-          <div className={styles.slideContent}>
-            <TransferInitial isStatic onCommentChange={handleTransitionStart} />
+          <div className={buildClassName(styles.slideContent, styles.slideContentTransfer)}>
+            <Transition
+              activeKey={activeTransferKey}
+              name={isPrev ? 'semiFade' : 'none'}
+              shouldCleanup
+              slideClassName={styles.slideContentInner}
+            >
+              <TransferInitial key={activeTransferKey} isStatic onCommentChange={handleTransitionStart} />
+            </Transition>
           </div>
         );
 
@@ -112,14 +147,12 @@ function LandscapeActions({
   }
 
   useEffect(() => {
-    return window.electron?.on(ElectronEvent.DEEPLINK, () => {
-      setActiveTabIndex({ index: DEFAULT_LANDSCAPE_ACTION_TAB_ID });
-    });
-  }, [setActiveTabIndex]);
-
-  useEffect(() => {
     handleTransitionStart();
   }, [activeTabIndex, handleTransitionStart, lang]);
+
+  function handleSelectTab(index: ActiveTab) {
+    setActiveTabIndex({ index }, { forceOnHeavyAnimation: true });
+  }
 
   return (
     <div className={styles.container}>
@@ -129,16 +162,16 @@ function LandscapeActions({
       >
         <div
           className={buildClassName(styles.tab, activeTabIndex === ActiveTab.Receive && styles.active)}
-          onClick={() => setActiveTabIndex({ index: ActiveTab.Receive })}
+          onClick={() => handleSelectTab(ActiveTab.Receive)}
         >
-          <i className={buildClassName(styles.tabIcon, 'icon-receive')} aria-hidden />
-          <span className={styles.tabText}>{lang('Receive')}</span>
+          <i className={buildClassName(styles.tabIcon, 'icon-add-buy')} aria-hidden />
+          <span className={styles.tabText}>{lang(isSwapAllowed || isOnRampAllowed ? 'Add / Buy' : 'Add')}</span>
 
           <span className={styles.tabDecoration} aria-hidden />
         </div>
         <div
           className={buildClassName(styles.tab, activeTabIndex === ActiveTab.Transfer && styles.active)}
-          onClick={() => setActiveTabIndex({ index: ActiveTab.Transfer })}
+          onClick={() => handleSelectTab(ActiveTab.Transfer)}
         >
           <i className={buildClassName(styles.tabIcon, 'icon-send')} aria-hidden />
           <span className={styles.tabText}>{lang('Send')}</span>
@@ -148,7 +181,7 @@ function LandscapeActions({
         {isSwapAllowed && (
           <div
             className={buildClassName(styles.tab, activeTabIndex === ActiveTab.Swap && styles.active)}
-            onClick={() => setActiveTabIndex({ index: ActiveTab.Swap })}
+            onClick={() => handleSelectTab(ActiveTab.Swap)}
           >
             <i className={buildClassName(styles.tabIcon, 'icon-swap')} aria-hidden />
             <span className={styles.tabText}>{lang('Swap')}</span>
@@ -163,7 +196,7 @@ function LandscapeActions({
               activeTabIndex === ActiveTab.Stake && styles.active,
               isStaking && styles.tab_purple,
             )}
-            onClick={() => setActiveTabIndex({ index: ActiveTab.Stake })}
+            onClick={() => handleSelectTab(ActiveTab.Stake)}
           >
             <i className={buildClassName(styles.tabIcon, 'icon-earn')} aria-hidden />
             <span className={styles.tabText}>
@@ -180,7 +213,7 @@ function LandscapeActions({
         className={buildClassName(
           styles.contentHeader,
           activeTabIndex === ActiveTab.Receive && styles.firstActive,
-          activeTabIndex === ActiveTab.Stake && styles.lastActive,
+          isLastTab && styles.lastActive,
         )}
       >
         <div className={buildClassName(styles.contentHeaderInner, isStaking && styles.contentSlideStaked)} />
@@ -286,10 +319,16 @@ export default memo(
     (global): StateProps => {
       const accountState = selectAccountState(global, global.currentAccountId!) ?? {};
 
+      const { isSwapDisabled, isOnRampDisabled } = global.restrictions;
+      const { nfts, tokenSlug = TONCOIN_SLUG } = global.currentTransfer;
+
       return {
         activeTabIndex: accountState?.landscapeActionsActiveTabIndex,
         isTestnet: global.settings.isTestnet,
-        isSwapDisabled: global.restrictions.isSwapDisabled,
+        nfts,
+        tokenSlug,
+        isSwapDisabled,
+        isOnRampDisabled,
       };
     },
     (global, _, stickToFirst) => stickToFirst(global.currentAccountId),

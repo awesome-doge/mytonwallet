@@ -1,22 +1,36 @@
+import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning';
+
+import type { GlobalState } from '../../types';
 import {
-  AppState, AuthState, HardwareConnectState, SettingsState,
+  AppState, AuthState, HardwareConnectState, SettingsState, SwapState, TransferState,
 } from '../../types';
 
 import {
-  ANIMATION_LEVEL_MIN, APP_VERSION, DEBUG, IS_CAPACITOR, IS_EXTENSION,
+  ANIMATION_LEVEL_MIN,
+  APP_VERSION,
+  BETA_URL,
+  BOT_USERNAME,
+  DEBUG,
+  IS_CAPACITOR,
+  IS_EXTENSION,
+  IS_PRODUCTION,
+  PRODUCTION_URL,
 } from '../../../config';
-import {
-  processDeeplink as processTonConnectDeeplink,
-  vibrateOnSuccess,
-} from '../../../util/capacitor';
-import { getIsAddressValid } from '../../../util/getIsAddressValid';
+import { vibrateOnSuccess } from '../../../util/capacitor';
+import { isTonDeeplink, parseTonDeeplink, processDeeplink } from '../../../util/deeplink';
 import getIsAppUpdateNeeded from '../../../util/getIsAppUpdateNeeded';
-import { unique } from '../../../util/iteratees';
+import { isTonAddressOrDomain } from '../../../util/isTonAddressOrDomain';
+import { omitUndefined, pick, unique } from '../../../util/iteratees';
+import { getTranslation } from '../../../util/langProvider';
 import { onLedgerTabClose, openLedgerTab } from '../../../util/ledger/tab';
-import { processDeeplink } from '../../../util/processDeeplink';
+import { callActionInMain } from '../../../util/multitab';
+import { openUrl } from '../../../util/openUrl';
 import { pause } from '../../../util/schedulers';
-import { isTonConnectDeeplink } from '../../../util/ton/deeplinks';
-import { IS_DELEGATED_BOTTOM_SHEET } from '../../../util/windowEnvironment';
+import {
+  IS_ANDROID_APP,
+  IS_BIOMETRIC_AUTH_SUPPORTED,
+  IS_DELEGATED_BOTTOM_SHEET,
+} from '../../../util/windowEnvironment';
 import { callApi } from '../../../api';
 import { addActionHandler, getGlobal, setGlobal } from '../../index';
 import {
@@ -29,21 +43,22 @@ import {
   updateAccountState,
   updateAuth,
   updateCurrentAccountState,
+  updateCurrentSwap,
+  updateCurrentTransfer,
   updateHardware,
   updateSettings,
 } from '../../reducers';
 import {
   selectAccountSettings,
   selectAccountState,
+  selectCurrentAccount,
   selectCurrentAccountState,
   selectCurrentAccountTokens,
   selectFirstNonHardwareAccount,
 } from '../../selectors';
 
-import { callActionInMain } from '../../../hooks/useDelegatedBottomSheet';
-
 const OPEN_LEDGER_TAB_DELAY = 500;
-const APP_VERSION_URL = 'version.txt';
+const APP_VERSION_URL = IS_ANDROID_APP ? `${IS_PRODUCTION ? PRODUCTION_URL : BETA_URL}/version.txt` : 'version.txt';
 
 addActionHandler('showActivityInfo', (global, actions, { id }) => {
   if (IS_DELEGATED_BOTTOM_SHEET) {
@@ -95,15 +110,25 @@ addActionHandler('setCurrentTokenPeriod', (global, actions, { period }) => {
   });
 });
 
-addActionHandler('addAccount', async (global, actions, { method, password }) => {
+addActionHandler('addAccount', async (global, actions, { method, password, isAuthFlow }) => {
   const firstNonHardwareAccount = selectFirstNonHardwareAccount(global);
+  const isMnemonicImport = method === 'importMnemonic';
 
   if (firstNonHardwareAccount) {
     if (!(await callApi('verifyPassword', password))) {
-      setGlobal(updateAccounts(getGlobal(), {
-        isLoading: undefined,
-        error: 'Wrong password, please try again.',
-      }));
+      global = getGlobal();
+      if (isAuthFlow) {
+        global = updateAuth(global, {
+          isLoading: undefined,
+          error: 'Wrong password, please try again.',
+        });
+      } else {
+        global = updateAccounts(getGlobal(), {
+          isLoading: undefined,
+          error: 'Wrong password, please try again.',
+        });
+      }
+      setGlobal(global);
       return;
     }
 
@@ -116,7 +141,11 @@ addActionHandler('addAccount', async (global, actions, { method, password }) => 
   }
 
   global = getGlobal();
-  global = { ...global, isAddAccountModalOpen: undefined };
+  if (isMnemonicImport || !firstNonHardwareAccount) {
+    global = { ...global, isAddAccountModalOpen: undefined };
+  } else {
+    global = updateAccounts(global, { isLoading: true });
+  }
   setGlobal(global);
 
   if (!IS_DELEGATED_BOTTOM_SHEET) {
@@ -128,9 +157,19 @@ addActionHandler('addAccount', async (global, actions, { method, password }) => 
 
 addActionHandler('addAccount2', (global, actions, { method, password }) => {
   const isMnemonicImport = method === 'importMnemonic';
-  const authState = isMnemonicImport ? AuthState.importWallet : AuthState.createBackup;
+  const firstNonHardwareAccount = selectFirstNonHardwareAccount(global);
+  const authState = firstNonHardwareAccount
+    ? isMnemonicImport
+      ? AuthState.importWallet
+      : undefined
+    : (IS_CAPACITOR
+      ? AuthState.createPin
+      : (IS_BIOMETRIC_AUTH_SUPPORTED ? AuthState.createBiometrics : AuthState.createPassword)
+    );
 
-  global = { ...global, appState: AppState.Auth };
+  if (isMnemonicImport || !firstNonHardwareAccount) {
+    global = { ...global, appState: AppState.Auth };
+  }
   global = updateAuth(global, { password, state: authState });
   global = clearCurrentTransfer(global);
   global = clearCurrentSwap(global);
@@ -145,6 +184,7 @@ addActionHandler('addAccount2', (global, actions, { method, password }) => {
 });
 
 addActionHandler('renameAccount', (global, actions, { accountId, title }) => {
+  global = { ...global, shouldForceAccountEdit: false };
   return renameAccount(global, accountId, title);
 });
 
@@ -328,10 +368,9 @@ addActionHandler('toggleCanPlaySounds', (global, actions, { isEnabled } = {}) =>
 });
 
 addActionHandler('setLandscapeActionsActiveTabIndex', (global, actions, { index }) => {
-  global = updateCurrentAccountState(global, {
+  return updateCurrentAccountState(global, {
     landscapeActionsActiveTabIndex: index,
   });
-  setGlobal(global);
 });
 
 addActionHandler('closeSecurityWarning', (global) => {
@@ -344,28 +383,12 @@ addActionHandler('closeSecurityWarning', (global) => {
   };
 });
 
-addActionHandler('toggleTokensWithNoBalance', (global, actions, { isEnabled }) => {
+addActionHandler('toggleTokensWithNoCost', (global, actions, { isEnabled }) => {
   const accountId = global.currentAccountId!;
   const accountSettings = selectAccountSettings(global, accountId) ?? {};
 
   setGlobal(updateSettings(global, {
-    areTokensWithNoBalanceHidden: isEnabled,
-    byAccountId: {
-      ...global.settings.byAccountId,
-      [accountId]: {
-        ...accountSettings,
-        exceptionSlugs: [],
-      },
-    },
-  }));
-});
-
-addActionHandler('toggleTokensWithNoPrice', (global, actions, { isEnabled }) => {
-  const accountId = global.currentAccountId!;
-  const accountSettings = selectAccountSettings(global, accountId) ?? {};
-
-  setGlobal(updateSettings(global, {
-    areTokensWithNoPriceHidden: isEnabled,
+    areTokensWithNoCostHidden: isEnabled,
     byAccountId: {
       ...global.settings.byAccountId,
       [accountId]: {
@@ -488,7 +511,7 @@ addActionHandler('deleteToken', (global, actions, { slug }) => {
   const accountId = global.currentAccountId!;
   const { balances } = selectAccountState(global, accountId) ?? {};
 
-  if (!balances?.bySlug[slug]) {
+  if (balances?.bySlug[slug] === undefined) {
     return;
   }
 
@@ -534,6 +557,7 @@ addActionHandler('checkAppVersion', (global) => {
         global = {
           ...global,
           isAppUpdateAvailable: true,
+          latestAppVersion: version.trim(),
         };
         setGlobal(global);
       }
@@ -555,53 +579,101 @@ addActionHandler('requestConfetti', (global) => {
   };
 });
 
-addActionHandler('openQrScanner', (global) => {
+addActionHandler('requestOpenQrScanner', async (global, actions) => {
   if (IS_DELEGATED_BOTTOM_SHEET) {
-    callActionInMain('openQrScanner');
+    callActionInMain('requestOpenQrScanner');
+    return;
+  }
+
+  let currentQrScan: GlobalState['currentQrScan'];
+  if (global.currentTransfer.state === TransferState.Initial) {
+    currentQrScan = { currentTransfer: global.currentTransfer };
+  } else if (global.currentSwap.state === SwapState.Blockchain) {
+    currentQrScan = { currentSwap: global.currentSwap };
+  }
+
+  const { camera } = await BarcodeScanner.requestPermissions();
+  const isGranted = camera === 'granted' || camera === 'limited';
+  if (!isGranted) {
+    actions.showNotification({
+      message: getTranslation('Permission denied. Please grant camera permission to use the QR code scanner.'),
+    });
+    return;
+  }
+
+  global = getGlobal();
+  global = {
+    ...global,
+    isQrScannerOpen: true,
+    currentQrScan,
+  };
+
+  setGlobal(global);
+});
+
+addActionHandler('closeQrScanner', (global) => {
+  if (IS_DELEGATED_BOTTOM_SHEET) {
+    callActionInMain('closeQrScanner');
     return undefined;
   }
 
   return {
     ...global,
-    isQrScannerOpen: true,
-  };
-});
-
-addActionHandler('closeQrScanner', (global) => {
-  return {
-    ...global,
     isQrScannerOpen: undefined,
+    currentQrScan: undefined,
   };
 });
 
-addActionHandler('openDeeplink', async (global, actions, params) => {
-  let { url } = params;
+addActionHandler('handleQrCode', (global, actions, { data }) => {
   if (IS_DELEGATED_BOTTOM_SHEET) {
-    callActionInMain('openDeeplink', { url });
-    return;
+    callActionInMain('handleQrCode', { data });
+    return undefined;
   }
 
-  if (isTonConnectDeeplink(url)) {
-    void processTonConnectDeeplink(url);
+  const { currentTransfer, currentSwap } = global.currentQrScan || {};
 
-    return;
+  if (currentTransfer) {
+    if (isTonAddressOrDomain(data)) {
+      return updateCurrentTransfer(global, {
+        ...currentTransfer,
+        toAddress: data,
+      });
+    }
+
+    const linkParams = isTonDeeplink(data) ? parseTonDeeplink(data) : undefined;
+    if (linkParams) {
+      return updateCurrentTransfer(global, {
+        ...currentTransfer,
+        // For NFT transfer we only extract address from a ton:// link
+        ...(currentTransfer.nfts?.length ? pick(linkParams, ['toAddress']) : omitUndefined(linkParams)),
+      });
+    }
   }
 
-  if (getIsAddressValid(url)) {
-    url = `ton://transfer/${url}`;
-  }
-
-  const result = await processDeeplink(url);
-  if (!result) {
-    actions.showNotification({
-      message: 'Unrecognized QR Code',
+  if (currentSwap) {
+    return updateCurrentSwap(global, {
+      ...currentSwap,
+      toAddress: data,
     });
   }
+
+  processDeeplink(data);
+
+  return undefined;
 });
 
 addActionHandler('changeBaseCurrency', async (global, actions, { currency }) => {
+  if (IS_DELEGATED_BOTTOM_SHEET) {
+    callActionInMain('changeBaseCurrency', { currency });
+  }
+
   await callApi('setBaseCurrency', currency);
-  void callApi('tryUpdateTokens');
+  await callApi('tryUpdatePrices');
+
+  await Promise.all([
+    callApi('tryUpdateTokens'),
+    callApi('tryLoadSwapTokens'),
+  ]);
 });
 
 addActionHandler('setIsPinAccepted', (global) => {
@@ -610,4 +682,73 @@ addActionHandler('setIsPinAccepted', (global) => {
 
 addActionHandler('clearIsPinAccepted', (global) => {
   return clearIsPinAccepted(global);
+});
+
+addActionHandler('openOnRampWidgetModal', (global) => {
+  setGlobal({ ...global, isOnRampWidgetModalOpen: true });
+});
+
+addActionHandler('closeOnRampWidgetModal', (global) => {
+  setGlobal({ ...global, isOnRampWidgetModalOpen: undefined });
+});
+
+addActionHandler('openMediaViewer', (global, actions, { mediaId, mediaType }) => {
+  return {
+    ...global,
+    mediaViewer: {
+      mediaId,
+      mediaType,
+    },
+  };
+});
+
+addActionHandler('closeMediaViewer', (global) => {
+  return {
+    ...global,
+    mediaViewer: {
+      mediaId: undefined,
+      mediaType: undefined,
+    },
+  };
+});
+
+addActionHandler('openReceiveModal', (global) => {
+  setGlobal({ ...global, isReceiveModalOpen: true });
+});
+
+addActionHandler('closeReceiveModal', (global) => {
+  setGlobal({ ...global, isReceiveModalOpen: undefined });
+});
+
+addActionHandler('showIncorrectTimeError', (global, actions) => {
+  actions.showDialog({
+    message: getTranslation('Time synchronization issue. Please ensure your device\'s time settings are correct.'),
+  });
+
+  return { ...global, isIncorrectTimeNotificationReceived: true };
+});
+
+addActionHandler('initLedgerPage', (global) => {
+  global = updateHardware(global, {
+    isRemoteTab: true,
+  });
+  setGlobal({ ...global, appState: AppState.Ledger });
+});
+
+addActionHandler('openLoadingOverlay', (global) => {
+  setGlobal({ ...global, isLoadingOverlayOpen: true });
+});
+
+addActionHandler('closeLoadingOverlay', (global) => {
+  setGlobal({ ...global, isLoadingOverlayOpen: undefined });
+});
+
+addActionHandler('clearAccountLoading', (global) => {
+  setGlobal(updateAccounts(global, { isLoading: undefined }));
+});
+
+addActionHandler('authorizeDiesel', (global) => {
+  const address = selectCurrentAccount(global)!.address;
+  setGlobal(updateCurrentAccountState(global, { isDieselAuthorizationStarted: true }));
+  openUrl(`https://t.me/${BOT_USERNAME}?start=auth-${address}`, true);
 });

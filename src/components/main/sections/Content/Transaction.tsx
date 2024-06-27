@@ -4,9 +4,11 @@ import React, { memo } from '../../../../lib/teact/teact';
 import type { ApiToken, ApiTransactionActivity } from '../../../../api/types';
 
 import { TON_SYMBOL } from '../../../../config';
-import { bigStrToHuman, getIsTxIdLocal } from '../../../../global/helpers';
+import { getIsTxIdLocal } from '../../../../global/helpers';
+import { bigintAbs } from '../../../../util/bigint';
 import buildClassName from '../../../../util/buildClassName';
 import { formatTime } from '../../../../util/dateFormat';
+import { toDecimal } from '../../../../util/decimals';
 import { formatCurrencyExtended } from '../../../../util/formatNumber';
 import { shortenAddress } from '../../../../util/shortenAddress';
 
@@ -54,15 +56,16 @@ function Transaction({
     type,
     metadata,
     slug,
+    nft,
   } = transaction;
 
   const isStake = type === 'stake';
   const isUnstake = type === 'unstake';
   const isUnstakeRequest = type === 'unstakeRequest';
   const isStaking = isStake || isUnstake || isUnstakeRequest;
+  const isNftTransfer = type === 'nftTransferred' || type === 'nftReceived';
 
   const token = tokensBySlug?.[slug];
-  const amountHuman = bigStrToHuman(amount, token!.decimals);
   const address = isIncoming ? fromAddress : toAddress;
   const addressName = savedAddresses?.[address] || metadata?.name;
   const isLocal = getIsTxIdLocal(txId);
@@ -86,6 +89,18 @@ function Transaction({
     }
 
     return isIncoming ? 'Received' : 'Sent';
+  }
+
+  function renderNft() {
+    return (
+      <div className={buildClassName(styles.nft, isIncoming && styles.received, comment && styles.nftWithComment)}>
+        <img src={nft!.thumbnail} alt={nft!.name} className={styles.nftImage} />
+        <div className={styles.nftData}>
+          <div className={styles.nftName}>{nft!.name}</div>
+          <div className={styles.nftCollection}>{nft!.collectionName}</div>
+        </div>
+      </div>
+    );
   }
 
   function renderComment() {
@@ -130,8 +145,8 @@ function Transaction({
     return (
       <div className={styles.amountWrapper}>
         <div className={amountOtherClass}>
-          {formatCurrencyExtended(
-            isStaking ? Math.abs(amountHuman) : amountHuman,
+          {isNftTransfer ? 'NFT' : formatCurrencyExtended(
+            toDecimal(isStaking ? bigintAbs(amount) : amount, token!.decimals),
             token?.symbol || TON_SYMBOL,
             isStaking,
           )}
@@ -140,7 +155,9 @@ function Transaction({
           {!isStaking && lang(isIncoming ? '$transaction_from' : '$transaction_to', {
             address: <span className={styles.addressValue}>{addressName || shortenAddress(address)}</span>,
           })}
-          {isStake && lang('at APY %1$s%', apyValue)}
+          {isStake && lang('at %apy_value%', {
+            apy_value: <span className={styles.apyValue}>APY {apyValue}%</span>,
+          })}
           {(isUnstake || isUnstakeRequest) && '\u00A0'}
         </div>
       </div>
@@ -149,7 +166,7 @@ function Transaction({
 
   const waitingIconClassName = buildClassName(
     styles.iconWaiting,
-    isStaking && styles.iconWaitingStake,
+    isStake && styles.iconWaitingStake,
     'icon-clock',
   );
 
@@ -161,6 +178,8 @@ function Transaction({
         styles.item,
         isLast && styles.itemLast,
         isActive && styles.active,
+        isNftTransfer && styles.withNft,
+        isNftTransfer && comment && styles.withNftAndComment,
       )}
       onClick={handleClick}
       isSimple
@@ -181,6 +200,7 @@ function Transaction({
         <div className={styles.date}>{formatTime(timestamp)}</div>
       </div>
       {renderAmount()}
+      {nft && renderNft()}
       {renderComment()}
       <i className={buildClassName(styles.iconArrow, 'icon-chevron-right')} aria-hidden />
     </Button>

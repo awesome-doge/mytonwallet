@@ -10,17 +10,31 @@ import { SplashScreen } from 'capacitor-splash-screen';
 
 import type { Theme } from '../global/types';
 
-import { callApi } from '../api';
-import { isTonConnectDeeplink } from './ton/deeplinks';
+import { GLOBAL_STATE_CACHE_KEY, IS_CAPACITOR } from '../config';
+import * as storageMethods from './capacitorStorageProxy/methods';
+import { processDeeplink } from './deeplink';
 import { pause } from './schedulers';
-import { tonConnectGetDeviceInfo } from './tonConnectEnvironment';
-import { IS_BIOMETRIC_AUTH_SUPPORTED, IS_DELEGATED_BOTTOM_SHEET } from './windowEnvironment';
+import { IS_BIOMETRIC_AUTH_SUPPORTED, IS_DELEGATED_BOTTOM_SHEET, IS_IOS } from './windowEnvironment';
 
-let launchUrl: string | undefined;
+// Full list of options can be found at https://github.com/apache/cordova-plugin-inappbrowser#cordovainappbrowseropen
+export const INAPP_BROWSER_OPTIONS = [
+  `location=${IS_IOS ? 'no' : 'yes'}`,
+  `lefttoright=${IS_IOS ? 'no' : 'yes'}`,
+  'usewkwebview=yes',
+  'clearcache=no',
+  'clearsessioncache=no',
+  'hidden=yes',
+  'toolbarposition=top',
+  'hidenavigationbuttons=yes',
+  'hideurlbar=no',
+  'backbuttoncaption=Back',
+  'allowInlineMediaPlayback=yes',
+].join(',');
 const IOS_SPLASH_SCREEN_HIDE_DELAY = 500;
 const IOS_SPLASH_SCREEN_HIDE_DURATION = 600;
 export const VIBRATE_SUCCESS_END_PAUSE_MS = 1300;
 
+let launchUrl: string | undefined;
 let platform: 'ios' | 'android' | undefined;
 let isNativeBiometricAuthSupported = false;
 let isFaceIdAvailable = false;
@@ -56,15 +70,17 @@ export async function initCapacitor() {
     }, IOS_SPLASH_SCREEN_HIDE_DELAY);
   }
 
-  launchUrl = (await App.getLaunchUrl())?.url;
-
   App.addListener('appUrlOpen', (event: URLOpenListenerEvent) => {
     processDeeplink(event.url);
   });
 
-  if (launchUrl) {
-    void processDeeplink(launchUrl);
-  }
+  App.addListener('backButton', ({ canGoBack }) => {
+    if (canGoBack) {
+      window.history.back();
+    } else {
+      App.exitApp();
+    }
+  });
 
   if (platform === 'android') {
     // Until this bug is fixed, the `overlay` must be `false`
@@ -83,15 +99,11 @@ export async function initCapacitor() {
       );
     }
   });
-}
 
-export async function processDeeplink(url: string) {
-  if (isTonConnectDeeplink(url)) {
-    const deviceInfo = tonConnectGetDeviceInfo();
-    const returnStrategy = await callApi('startSseConnection', url, deviceInfo);
-    if (returnStrategy === 'ret') {
-      await App.minimizeApp();
-    }
+  launchUrl = (await App.getLaunchUrl())?.url;
+
+  if (launchUrl) {
+    void processDeeplink(launchUrl);
   }
 }
 
@@ -113,29 +125,29 @@ export function clearLaunchUrl() {
   launchUrl = undefined;
 }
 
-export function getCapacitorPlatform() {
-  return platform;
-}
-
 export function getStatusBarHeight() {
   return statusBarHeight;
 }
 
 export async function vibrate() {
+  if (!IS_CAPACITOR) return;
+
   await Haptics.impact({ style: ImpactStyle.Light });
 }
 
 export async function vibrateOnError() {
-  for (let i = 0; i < 3; i++) {
-    await Haptics.impact({ style: ImpactStyle.Medium });
-    await pause(150);
-  }
+  if (!IS_CAPACITOR) return;
+
+  await Haptics.impact({ style: ImpactStyle.Medium });
+  await pause(100);
+  await Haptics.impact({ style: ImpactStyle.Medium });
+  await pause(75);
+  await Haptics.impact({ style: ImpactStyle.Light });
 }
 
 export async function vibrateOnSuccess(withPauseOnEnd = false) {
-  await pause(300);
-  await Haptics.impact({ style: ImpactStyle.Heavy });
-  await pause(150);
+  if (!IS_CAPACITOR) return;
+
   await Haptics.impact({ style: ImpactStyle.Light });
 
   if (withPauseOnEnd) {
@@ -157,4 +169,19 @@ export function getIsFaceIdAvailable() {
 
 export function getIsTouchIdAvailable() {
   return isTouchIdAvailable;
+}
+
+export async function fixIosAppStorage() {
+  await storageMethods.init();
+
+  const isLocalStorageDataExists = Boolean(window.localStorage.getItem(GLOBAL_STATE_CACHE_KEY));
+  const isApiStorageDataExists = Boolean(await storageMethods.getItem('accounts'));
+
+  if (isLocalStorageDataExists && !isApiStorageDataExists) {
+    window.localStorage.clear();
+  }
+
+  if (!isLocalStorageDataExists && isApiStorageDataExists) {
+    await storageMethods.clear();
+  }
 }

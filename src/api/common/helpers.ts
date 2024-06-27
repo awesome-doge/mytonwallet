@@ -1,4 +1,6 @@
+import type blockchains from '../blockchains';
 import type { ApiTransactionExtra } from '../blockchains/ton/types';
+import type { ApiDbSseConnection } from '../db';
 import type { StorageKey } from '../storages/types';
 import type {
   AccountIdParsed,
@@ -9,17 +11,25 @@ import type {
   OnApiUpdate,
 } from '../types';
 
-import { IS_EXTENSION, MAIN_ACCOUNT_ID } from '../../config';
+import { IS_CAPACITOR, IS_EXTENSION, MAIN_ACCOUNT_ID } from '../../config';
 import { buildAccountId, parseAccountId } from '../../util/account';
-import { toBase64Address } from '../blockchains/ton/util/tonweb';
+import { areDeepEqual } from '../../util/areDeepEqual';
+import { assert } from '../../util/assert';
+import { logDebugError } from '../../util/logs';
+import { toBase64Address } from '../blockchains/ton/util/tonCore';
+import { getEnvironment } from '../environment';
 import { storage } from '../storages';
+import capacitorStorage from '../storages/capacitorStorage';
 import idbStorage from '../storages/idb';
-import { getKnownAddresses, getScamMarkers } from './addresses';
+import {
+  checkHasScamLink, checkHasTelegramBotMention, getKnownAddresses, getScamMarkers,
+} from './addresses';
+import { hexToBytes } from './utils';
 
 let localCounter = 0;
 const getNextLocalId = () => `${Date.now()}|${localCounter++}`;
 
-const actualStateVersion = 8;
+const actualStateVersion = 16;
 let migrationEnsurePromise: Promise<void>;
 
 export function resolveBlockchainKey(accountId: string) {
@@ -42,14 +52,13 @@ export function buildLocalTransaction(
   const { amount, ...restParams } = params;
 
   const transaction: ApiTransaction = updateTransactionMetadata({
+    ...restParams,
     txId: getNextLocalId(),
     timestamp: Date.now(),
     isIncoming: false,
-    amount: `-${amount}`,
-    ...restParams,
-    extraData: {
-      normalizedAddress,
-    },
+    amount: -amount,
+    normalizedAddress,
+    extraData: {},
   });
 
   return {
@@ -60,17 +69,25 @@ export function buildLocalTransaction(
 }
 
 export function updateTransactionMetadata(transaction: ApiTransactionExtra): ApiTransactionExtra {
-  const { extraData, comment } = transaction;
+  const {
+    normalizedAddress, comment, type, isIncoming,
+  } = transaction;
   let { metadata = {} } = transaction;
 
+  const isNftTransfer = type === 'nftTransferred' || type === 'nftReceived';
   const knownAddresses = getKnownAddresses();
-  const scamMarkers = getScamMarkers();
+  const hasScamMarkers = comment ? getScamMarkers().some((sm) => sm.test(comment)) : false;
+  const shouldCheckComment = !hasScamMarkers && comment && isIncoming
+    && (isNftTransfer || comment.toLowerCase().includes('claim'));
+  const hasScamInComment = shouldCheckComment
+    ? (checkHasScamLink(comment) || checkHasTelegramBotMention(comment))
+    : false;
 
-  if (extraData.normalizedAddress in knownAddresses) {
-    metadata = { ...metadata, ...knownAddresses[extraData.normalizedAddress] };
+  if (normalizedAddress in knownAddresses) {
+    metadata = { ...metadata, ...knownAddresses[normalizedAddress] };
   }
 
-  if (comment && scamMarkers.map((sm) => sm.test(comment)).find(Boolean)) {
+  if (hasScamMarkers || hasScamInComment) {
     metadata.isScam = true;
   }
 
@@ -91,8 +108,15 @@ export function isUpdaterAlive(onUpdate: OnApiUpdate) {
   return currentOnUpdate === onUpdate;
 }
 
-export function startStorageMigration(onUpdate: OnApiUpdate) {
-  migrationEnsurePromise = migrateStorage(onUpdate);
+export function startStorageMigration(onUpdate: OnApiUpdate, ton: typeof blockchains.ton) {
+  migrationEnsurePromise = migrateStorage(onUpdate, ton)
+    .catch((err) => {
+      logDebugError('Migration error', err);
+      currentOnUpdate?.({
+        type: 'showError',
+        error: 'Migration error',
+      });
+    });
   return migrationEnsurePromise;
 }
 
@@ -100,24 +124,40 @@ export function waitStorageMigration() {
   return migrationEnsurePromise;
 }
 
-export async function migrateStorage(onUpdate: OnApiUpdate) {
-  let version = Number(await storage.getItem('stateVersion'));
+export async function migrateStorage(onUpdate: OnApiUpdate, ton: typeof blockchains.ton) {
+  let version = Number(await storage.getItem('stateVersion', true));
 
   if (version === actualStateVersion) {
     return;
   }
 
-  if (!version && !(await storage.getItem('addresses' as StorageKey))) {
+  if (IS_CAPACITOR && !version) {
+    if (await storage.getItem('accounts' as StorageKey, true)) {
+      // Fix broken version
+      version = 10;
+    } else {
+      // Prepare for migration to secure storage
+      const idbVersion = await idbStorage.getItem('stateVersion');
+      if (idbVersion) {
+        version = Number(idbVersion);
+      }
+    }
+  }
+
+  // Migration to chrome.storage
+  if (IS_EXTENSION && !version && !(await storage.getItem('addresses' as StorageKey))) {
     version = await idbStorage.getItem('stateVersion');
 
-    if (IS_EXTENSION && version) {
+    if (version) {
       // Switching from IndexedDB to `chrome.storage.local`
       const idbData = await idbStorage.getAll!();
       await storage.setMany!(idbData);
-    } else {
-      await storage.setItem('stateVersion', actualStateVersion);
-      return;
     }
+  }
+
+  if (!version) {
+    await storage.setItem('stateVersion', actualStateVersion);
+    return;
   }
 
   // First version (v1)
@@ -247,5 +287,149 @@ export async function migrateStorage(onUpdate: OnApiUpdate) {
 
     version = 8;
     await storage.setItem('stateVersion', version);
+  }
+
+  if (version === 8) {
+    if (getEnvironment().isSseSupported) {
+      const dapps = await storage.getItem('dapps');
+
+      if (dapps) {
+        const items: ApiDbSseConnection[] = [];
+
+        for (const accountDapps of Object.values(dapps) as any[]) {
+          for (const dapp of Object.values(accountDapps) as any[]) {
+            if (dapp.sse?.appClientId) {
+              items.push({ clientId: dapp.sse?.appClientId });
+            }
+          }
+        }
+      }
+    }
+
+    version = 9;
+    await storage.setItem('stateVersion', version);
+  }
+
+  if (version === 9) {
+    if (IS_CAPACITOR) {
+      const data = await idbStorage.getAll!();
+
+      for (const [key, value] of Object.entries(data)) {
+        await capacitorStorage.setItem(key as StorageKey, value);
+        const newValue = await capacitorStorage.getItem(key as StorageKey, true);
+
+        if (!areDeepEqual(value, newValue)) {
+          throw new Error('Migration error!');
+        }
+      }
+      await idbStorage.clear();
+    }
+
+    version = 10;
+    await storage.setItem('stateVersion', version);
+  }
+
+  let isIosKeychainModeMigrated = false;
+  if (getEnvironment().isIosApp && version >= 10 && version <= 13) {
+    await iosBackupAndMigrateKeychainMode();
+    isIosKeychainModeMigrated = true;
+  }
+
+  if (version === 10 || version === 11 || version === 12) {
+    const accounts: Record<string, {
+      publicKey: string;
+      address: string;
+      version?: string;
+    }> | undefined = await storage.getItem('accounts', true);
+
+    if (accounts) {
+      for (const account of Object.values(accounts)) {
+        const { publicKey, address, version: walletVersion } = account;
+
+        if (walletVersion || !publicKey) continue;
+
+        const publicKeyBytes = hexToBytes(publicKey);
+        const walletInfo = ton.pickWalletByAddress('mainnet', publicKeyBytes, address);
+
+        account.version = walletInfo.version;
+      }
+
+      await storage.setItem('accounts', accounts);
+    }
+
+    version = 13;
+    await storage.setItem('stateVersion', version);
+  }
+
+  if (version === 13) {
+    const accounts: Record<string, {
+      publicKey: string;
+      address: string;
+      version?: string;
+    }> | undefined = await storage.getItem('accounts', true);
+
+    if (accounts) {
+      for (const [accountId, account] of Object.entries(accounts)) {
+        const { network } = parseAccountId(accountId);
+        if (network === 'testnet') {
+          account.address = toBase64Address(account.address, false, network);
+
+          onUpdate({
+            type: 'updateAccount',
+            accountId,
+            partial: {
+              address: account.address,
+            },
+          });
+        }
+      }
+
+      await storage.setItem('accounts', accounts);
+    }
+  }
+
+  if (version === 14 || version === 15) {
+    if (getEnvironment().isIosApp && !isIosKeychainModeMigrated) {
+      await iosBackupAndMigrateKeychainMode();
+    }
+
+    version = 16;
+    await storage.setItem('stateVersion', version);
+  }
+}
+
+async function iosBackupAndMigrateKeychainMode() {
+  const keys = await capacitorStorage.getKeys();
+
+  if (keys?.length) {
+    const items: [string, any][] = [];
+
+    for (const key of keys) {
+      if (key.startsWith('backup_')) {
+        continue;
+      }
+
+      const backupKey = `backup_${key}` as StorageKey;
+      const value = await capacitorStorage.getItem(key as StorageKey, true);
+
+      assert(value !== undefined, 'Empty value!');
+      await capacitorStorage.setItem(backupKey, value);
+      const backupValue = await capacitorStorage.getItem(backupKey);
+      assert(areDeepEqual(value, backupValue), 'Data has not been saved!');
+
+      items.push([key, value]);
+    }
+
+    for (const [key, value] of items) {
+      let shouldRewrite = false;
+      await capacitorStorage.setItem(key as StorageKey, value).catch(() => {
+        shouldRewrite = true;
+      });
+
+      if (shouldRewrite) {
+        await capacitorStorage.removeItem(key as StorageKey);
+        await capacitorStorage.setItem(key as StorageKey, value);
+      }
+    }
   }
 }

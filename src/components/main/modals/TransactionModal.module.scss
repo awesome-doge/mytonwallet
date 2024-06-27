@@ -1,9 +1,26 @@
-.passwordModal {
-  min-height: 24.5rem;
+.modalDialog {
+  height: 36.5rem;
+
+  @supports (height: env(safe-area-inset-bottom)) {
+    height: calc(36.5rem + env(safe-area-inset-bottom));
+  }
+
+  :global(.is-native-bottom-sheet) &,
+  &.unstakeModal {
+    height: auto;
+  }
 }
 
 .passwordFormContent {
   padding: 0 !important;
+}
+
+.passwordFormContentInModal {
+  padding: 0 1rem 1rem;
+
+  @supports (padding-bottom: env(safe-area-inset-bottom)) {
+    padding-bottom: max(env(safe-area-inset-bottom), 1rem);
+  }
 }
 
 .sticker {
@@ -11,9 +28,11 @@
 }
 
 .footer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  grid-auto-columns: minmax(max-content, 1fr);
+  grid-auto-flow: column;
+  gap: 1rem;
+  justify-items: center;
 
   margin-top: auto;
   padding-top: 3rem;
@@ -35,13 +54,14 @@
   white-space: nowrap;
 }
 
-.clockIcon {
-  margin-inline-start: 0.25rem;
-
-  vertical-align: -0.125rem;
+.buttonWide {
+  width: 100%;
+  min-width: 4rem !important;
+  max-width: 100% !important;
+  padding: 0.5rem !important;
 }
 
-.tonscan {
+.tonExplorer {
   position: absolute;
   top: 1.0625rem;
   left: 1rem;
@@ -81,21 +101,6 @@
   }
 }
 
-.unstakeNotice {
-  max-width: 18rem;
-  margin: 0 auto;
-  padding: 0.25rem 0.5rem;
-
-  font-size: 1.0625rem;
-  font-weight: 700;
-  line-height: 1.3125rem;
-  color: var(--color-transaction-green-text);
-  text-align: center;
-
-  background: var(--color-transaction-green-background);
-  border-radius: var(--border-radius-tiny);
-}
-
 .unstakeTime {
   position: relative;
 
@@ -103,7 +108,7 @@
   flex-direction: column;
 
   max-width: 19rem;
-  margin: 0.25rem auto 0;
+  margin: 1.5rem auto 0;
   padding: 0.75rem;
 
   font-size: 0.9375rem;
@@ -163,10 +168,20 @@
   margin-top: 2rem;
 }
 
-.textFieldWrapper {
+.textFieldWrapper,
+.textFieldWrapperFullWidth {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.textFieldWrapperFullWidth,
+.changellyTextField {
+  width: 100%;
+}
+
+.swapSupportBlock {
+  gap: 1rem;
 }
 
 .textFieldLabel {
@@ -251,10 +266,37 @@
   text-align: center;
 }
 
-.changellyTextField {
-  width: 100%;
-}
-
 .changellyDescriptionBold {
   font-weight: 700;
+}
+
+.qrCode {
+  position: relative;
+
+  overflow: hidden;
+
+  aspect-ratio: 1;
+  width: 100%;
+  max-width: 8rem;
+  margin: 0 auto;
+
+  background-color: var(--color-white);
+  border-radius: var(--border-radius-card);
+
+  transition: opacity 350ms ease-in-out;
+
+  canvas {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+
+    display: block;
+
+    width: calc(100% - 1rem);
+    height: calc(100% - 1rem);
+  }
+}
+
+.qrCodeHidden {
+  opacity: 0;
 }

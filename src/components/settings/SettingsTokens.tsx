@@ -7,8 +7,10 @@ import { getActions } from '../../global';
 import type { ApiBaseCurrency } from '../../api/types';
 import { SettingsState, type UserToken } from '../../global/types';
 
-import { TON_TOKEN_SLUG } from '../../config';
+import { TONCOIN_SLUG } from '../../config';
+import { bigintMultiplyToNumber } from '../../util/bigint';
 import buildClassName from '../../util/buildClassName';
+import { toDecimal } from '../../util/decimals';
 import { formatCurrency, getShortCurrencySymbol } from '../../util/formatNumber';
 import { isBetween } from '../../util/math';
 import { ASSET_LOGO_PATHS } from '../ui/helpers/assetLogos';
@@ -113,7 +115,7 @@ function SettingsTokens({
   });
 
   const handleExceptionToken = useLastCallback((slug: string, e: React.MouseEvent | React.TouchEvent) => {
-    if (slug === TON_TOKEN_SLUG) return;
+    if (slug === TONCOIN_SLUG) return;
 
     e.preventDefault();
     e.stopPropagation();
@@ -130,9 +132,9 @@ function SettingsTokens({
       symbol, image, name, amount, price, slug, isDisabled,
     } = token;
 
-    const isTON = slug === TON_TOKEN_SLUG;
+    const isToncoin = slug === TONCOIN_SLUG;
     const logoPath = image || ASSET_LOGO_PATHS[symbol.toLowerCase() as keyof typeof ASSET_LOGO_PATHS];
-    const totalAmount = amount * price;
+    const totalAmount = bigintMultiplyToNumber(amount, price);
     const isDragged = state.draggedIndex === index;
 
     const draggedTop = isSortByValueEnabled ? getOffsetByIndex(index) : getOffsetBySlug(slug, state.orderedTokenSlugs);
@@ -141,7 +143,7 @@ function SettingsTokens({
     const style = `top: ${isDragged ? draggedTop : top}px;`;
     const knobStyle = 'left: 1rem;';
 
-    const isDeleteButtonVisible = amount === 0 && !isTON;
+    const isDeleteButtonVisible = amount === 0n && !isToncoin;
 
     const isDragDisabled = isSortByValueEnabled || tokens!.length <= 1;
 
@@ -171,9 +173,9 @@ function SettingsTokens({
             {name}
           </div>
           <div className={styles.tokenDescription}>
-            <AnimatedCounter text={formatCurrency(totalAmount, shortBaseSymbol)} />
+            <AnimatedCounter text={formatCurrency(toDecimal(totalAmount, token.decimals, true), shortBaseSymbol)} />
             <i className={styles.dot} aria-hidden />
-            <AnimatedCounter text={formatCurrency(amount, symbol)} />
+            <AnimatedCounter text={formatCurrency(toDecimal(amount, token.decimals), symbol)} />
             {isDeleteButtonVisible && (
               <>
                 <i className={styles.dot} aria-hidden />
@@ -184,7 +186,7 @@ function SettingsTokens({
             )}
           </div>
         </div>
-        {!isTON && (
+        {!isToncoin && (
           <Switcher
             className={styles.menuSwitcher}
             checked={!isDisabled}
@@ -205,7 +207,7 @@ function SettingsTokens({
         >
           <div className={buildClassName(styles.item, styles.item_small)} onClick={handleOpenAddTokenPage}>
             {lang('Add Token')}
-            <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-down')} aria-hidden />
+            <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
           </div>
 
           {tokens?.map(renderToken)}

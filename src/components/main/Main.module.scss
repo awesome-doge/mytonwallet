@@ -41,17 +41,16 @@ $scrollOffset: 0.1875rem;
 
 .head {
   position: relative;
-  z-index: 2;
+  z-index: 3;
 }
 
 .landscapeContainer {
   display: grid;
   grid-template-columns: 21.5rem 1fr;
-  column-gap: calc(0.75rem - var(--scrollbar-width) - #{$scrollOffset});
 
   /* 948px + 1rem padding on both sides */
-  max-width: calc(59.25rem + 2rem);
-  height: 100vh;
+  max-width: 61.25rem;
+  height: 100%;
   max-height: calc(var(--vh, 1vh) * 100);
   margin: auto;
   padding: 1rem 1rem 0;
@@ -61,13 +60,28 @@ $scrollOffset: 0.1875rem;
     padding-top: 0;
   }
 
-  // Fix for opera, dead zone of 37 pixels in extension window on windows
+  // Fix for Opera, dead zone of 37 pixels in extension window on Windows
   :global(html.is-windows.is-opera.is-extension) & {
     padding-top: 2.3125rem;
   }
 
-  @supports (column-gap: max(0px, 1px)) {
-    column-gap: max(0px, calc(0.75rem - var(--scrollbar-width) - #{$scrollOffset}));
+  :global(html.is-ios) & {
+    max-width: none;
+
+    @media (min-width: 1100px) and (min-height: 700px) {
+      grid-template-columns: 24.5rem 1fr;
+    }
+  }
+
+  .sidebar {
+    margin-right: #{$scrollOffset};
+    padding-right: calc(0.75rem - var(--scrollbar-width) - #{$scrollOffset});
+    // Due to the presence of `.LandscapeActions__contentFooter`, which is 1rem high, we increase the indentation at the bottom by its size
+    padding-bottom: calc(max(env(safe-area-inset-bottom), 1rem) + 1rem);
+  }
+
+  .main {
+    padding-bottom: max(env(safe-area-inset-bottom), 1rem);
   }
 }
 
@@ -78,7 +92,10 @@ $scrollOffset: 0.1875rem;
 
   height: 100%;
   min-height: 0;
-  padding-bottom: 1rem;
+
+  @include respond-below(xs) {
+    padding-bottom: 1rem;
+  }
 }
 
 .main {

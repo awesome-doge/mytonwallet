@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Check in MyTonWallet</title>
+  <link rel="stylesheet" href="/index.css">
+  <link rel="stylesheet" href="/checkin.css">
+  <script src="https://unpkg.com/@tonconnect/sdk@latest/dist/tonconnect-sdk.min.js"></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileCallback" defer></script>
+</head>
+<body>
+<div class="container">
+  <div id="slide-container">
+    <div id="checkin" class="slide">
+      <a href="#" target="_blank" id="checkin-btn" class="download-btn disabled animate-opacity">Checking In...</a>
+    </div>
+    <div id="cf-turnstile" class="slide faded">Loading...</div>
+    <div id="error" class="slide faded"></div>
+    <div id="processing" class="slide faded">Loading...</div>
+    <div id="ref-container" class="slide faded">
+      <div>
+        <b>Your referral link</b>
+      </div>
+      <div id="ref-link-container">
+        <a href="about:blank" target="_blank" class="gradient-text mono animate-opacity">my.tt/r/</a>
+        <div>
+          <a href="about:blank" id="copy-btn" class="download-btn hidden animate-opacity">
+            Copy
+          </a>
+          <a href="about:blank" id="share-btn" class="download-btn hidden animate-opacity">
+            Share
+          </a>
+        </div>
+      </div>
+      <div id="join-giveaway">
+        <a href="https://t.me/community_bot/join?startapp=id_411" target="_blank" class="gradient-text">
+          Join the giveaway
+        </a> on <b>Community Bot</b>.
+      </div>
+    </div>
+    <div id="connect-bot" class="slide faded">
+      <div>
+        <a href="#" target="_blank" id="connect-bot-btn" class="download-btn">Connect MyTonWallet Bot</a>
+        <p class="caption">
+          After connecting, close this window
+          <br />to return to MyTonWallet.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+<a href="#" id="show-referral-stats" class="white-link faded animate-opacity">Show referral stats</a>
+<div id="referral-stats" class="container hidden faded animate-opacity">
+  <p>
+    <b>Referral stats</b>
+  </p>
+  <p>Invited me: <b id="invited-me" class="gradient-text mono">…</b></p>
+  <p>Invited by me: <b id="invited-by-me" class="gradient-text">…</b></p>
+</div>
+<script src="./checkin.js"></script>
+</body>
+</html>

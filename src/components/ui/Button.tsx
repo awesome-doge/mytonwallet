@@ -4,14 +4,17 @@ import React, { memo, useState } from '../../lib/teact/teact';
 import buildClassName from '../../util/buildClassName';
 
 import useLastCallback from '../../hooks/useLastCallback';
-import useShowTransition from '../../hooks/useShowTransition';
+
+import LoadingDots from './LoadingDots';
 
 import styles from './Button.module.scss';
 
 type OwnProps = {
   ref?: RefObject<HTMLButtonElement>;
   children: React.ReactNode;
+  id?: string;
   className?: string;
+  style?: string;
   ariaLabel?: string;
   forFormId?: string;
   kind?: 'transparent';
@@ -24,18 +27,18 @@ type OwnProps = {
   isRound?: boolean;
   isSmall?: boolean;
   isDestructive?: boolean;
-  onClick?: () => void;
+  onClick?: NoneToVoidFunction;
 };
 
 // Longest animation duration
 const CLICKED_TIMEOUT = 400;
 
-const LOADING_CLOSE_DURATION = 200;
-
 function Button({
   ref,
   children,
+  id,
   className,
+  style,
   ariaLabel,
   forFormId,
   kind,
@@ -52,10 +55,6 @@ function Button({
 }: OwnProps) {
   const [isClicked, setIsClicked] = useState(false);
 
-  const {
-    shouldRender: shouldRenderLoading,
-  } = useShowTransition(isLoading, undefined, undefined, undefined, undefined, LOADING_CLOSE_DURATION);
-
   const handleClick = useLastCallback(() => {
     if (!isDisabled && onClick) {
       onClick();
@@ -70,11 +69,11 @@ function Button({
   const loadingClassName = buildClassName(
     isLoading !== undefined && styles.loadingInit,
     isLoading && styles.loadingStart,
-    shouldRenderLoading && styles.loadingAnimation,
   );
 
   return (
     <button
+      id={id}
       ref={ref}
       type={isSubmit || forFormId ? 'submit' : 'button'}
       className={buildClassName(
@@ -82,7 +81,7 @@ function Button({
         isSimple && styles.isSimple,
         isSmall && styles.sizeSmall,
         isPrimary && styles.primary,
-        isDisabled && styles.disabled,
+        (isDisabled || isLoading) && styles.disabled,
         loadingClassName,
         isRound && styles.round,
         isText && styles.isText,
@@ -91,12 +90,14 @@ function Button({
         className,
         kind && styles[kind],
       )}
+      style={style}
       aria-label={ariaLabel}
       onClick={handleClick}
-      disabled={isDisabled}
+      disabled={isDisabled || isLoading}
       form={forFormId}
     >
       {children}
+      <LoadingDots isActive={isLoading} className={styles.loadingDots} />
     </button>
   );
 }

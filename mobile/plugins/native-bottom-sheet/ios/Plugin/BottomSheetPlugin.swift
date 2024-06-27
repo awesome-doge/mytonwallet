@@ -22,6 +22,7 @@ public class BottomSheetPlugin: CAPPlugin, FloatingPanelControllerDelegate {
     public var currentOpenSelfCall: CAPPluginCall?
     var currentHalfY: CGFloat?
     var prevStatusBarStyle: UIStatusBarStyle?
+    public var isHalfSize = false
 
     @objc func prepare(_ call: CAPPluginCall) {
         ensureLocalOrigin()
@@ -39,13 +40,13 @@ public class BottomSheetPlugin: CAPPlugin, FloatingPanelControllerDelegate {
             capVc = CAPBridgeViewControllerForBottomSheet()
             fpc.set(contentViewController: capVc)
             fpc.track(scrollView: capVc!.webView!.scrollView)
-            // Fix redunant scroll offsets
+
+            // Fix unexpected scrolling within WebView
             fpc.contentInsetAdjustmentBehavior = .never
+
             // Fix warning "Unable to simultaneously satisfy constraints."
             // https://github.com/scenee/FloatingPanel/issues/557
             fpc.invalidateLayout()
-
-            setupScrollReducers()
 
             let topVc = bridge!.viewController!
             topVc.view.clipsToBounds = true
@@ -60,25 +61,67 @@ public class BottomSheetPlugin: CAPPlugin, FloatingPanelControllerDelegate {
             }
         }
     }
-    
+
+    @objc func disable(_ call: CAPPluginCall) {
+        ensureLocalOrigin()
+        ensureDelegating()
+
+        DispatchQueue.main.async { [self] in
+            if let presentingVc = self.fpc.presentingViewController {
+                let topBottomSheetPlugin = self.bridge!.plugin(withName: "BottomSheet") as! BottomSheetPlugin
+
+                presentingVc.dismiss(animated: false) {
+                    call.resolve()
+                }
+            } else {
+                call.resolve()
+            }
+        }
+    }
+
+    @objc func enable(_ call: CAPPluginCall) {
+        ensureLocalOrigin()
+        ensureDelegating()
+
+        DispatchQueue.main.async { [self] in
+            if (self.fpc.presentingViewController != nil) {
+                call.resolve()
+                return
+            }
+
+            if let presentedVc = self.bridge!.viewController!.presentedViewController {
+                presentedVc.dismiss(animated: false) {
+                    self.bridge?.viewController?.present(self.fpc, animated: false) {
+                        call.resolve()
+                    }
+                }
+            } else {
+                self.bridge?.viewController?.present(self.fpc, animated: false) {
+                    call.resolve()
+                }
+            }
+        }
+    }
+
     @objc func applyScrollPatch(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [self] in
-            let topVc = bridge!.viewController!.parent!.presentingViewController as! CAPBridgeViewController
-            let topBottomSheetPlugin = topVc.bridge!.plugin(withName: "BottomSheet") as! BottomSheetPlugin
-            topBottomSheetPlugin.setupScrollReducers()
+            guard let topVc = bridge?.viewController?.parent?.presentingViewController as? CAPBridgeViewController else {
+                call.resolve()
+                return
+            }
+            let topBottomSheetPlugin = topVc.bridge?.plugin(withName: "BottomSheet") as? BottomSheetPlugin
             call.resolve()
         }
     }
-    
+
     @objc func clearScrollPatch(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [self] in
             let topVc = bridge!.viewController!.parent!.presentingViewController as! CAPBridgeViewController
             let topBottomSheetPlugin = topVc.bridge!.plugin(withName: "BottomSheet") as! BottomSheetPlugin
-            topBottomSheetPlugin.removeScrollReducers()
             call.resolve()
         }
     }
-    
+
     @objc func delegate(_ call: CAPPluginCall) {
         ensureLocalOrigin()
         ensureDelegating()
@@ -149,7 +192,7 @@ public class BottomSheetPlugin: CAPPlugin, FloatingPanelControllerDelegate {
         }
     }
 
-    @objc func setSelfSize(_ call: CAPPluginCall) {
+    @objc func toggleSelfFullSize(_ call: CAPPluginCall) {
         ensureLocalOrigin()
         ensureDelegated()
 
@@ -160,34 +203,24 @@ public class BottomSheetPlugin: CAPPlugin, FloatingPanelControllerDelegate {
                 return
             }
 
-            let topVc = bridge!.viewController!.parent!.presentingViewController as! CAPBridgeViewController
+            let topVc = self.bridge!.viewController!.parent!.presentingViewController as! CAPBridgeViewController
             let topBottomSheetPlugin = topVc.bridge!.plugin(withName: "BottomSheet") as! BottomSheetPlugin
-            let toFull = call.getString("size") == "full"
+
+            if !topBottomSheetPlugin.isHalfSize {
+                return
+            }
+
+            let isFullSize = call.getBool("isFullSize") == true
             let layout = topBottomSheetPlugin.fpc.layout as! MyPanelLayout
 
-            if toFull && layout.anchors[.full] == nil {
+            if isFullSize && layout.anchors[.full] == nil {
                 layout.anchors[.full] = layout.fullAnchor
             }
 
-            topBottomSheetPlugin.animateTo(to: toFull ? .full : .half)
+            topBottomSheetPlugin.animateTo(to: isFullSize ? .full : .half)
         }
     }
 
-    @objc func callActionInMain(_ call: CAPPluginCall) {
-        ensureLocalOrigin()
-        ensureDelegated()
-
-        call.resolve()
-
-        DispatchQueue.main.async { [self] in
-            let topVc = bridge!.viewController!.parent!.presentingViewController as! CAPBridgeViewController
-            let topBottomSheetPlugin = topVc.bridge!.plugin(withName: "BottomSheet") as! BottomSheetPlugin
-            topBottomSheetPlugin.notifyListeners("callActionInMain", data: [
-                "name": call.getString("name")!,
-                "optionsJson": call.getString("optionsJson")!
-            ])
-        }
-    }
 
     @objc func openInMain(_ call: CAPPluginCall) {
         ensureLocalOrigin()
@@ -200,20 +233,6 @@ public class BottomSheetPlugin: CAPPlugin, FloatingPanelControllerDelegate {
             let topBottomSheetPlugin = topVc.bridge!.plugin(withName: "BottomSheet") as! BottomSheetPlugin
             topBottomSheetPlugin.notifyListeners("openInMain", data: [
                 "key": call.getString("key")!
-            ])
-        }
-    }
-
-    @objc func callActionInNative(_ call: CAPPluginCall) {
-        ensureLocalOrigin()
-        ensureDelegating()
-
-        call.resolve()
-
-        DispatchQueue.main.async { [self] in
-            capVc!.bridge?.plugin(withName: "BottomSheet")!.notifyListeners("callActionInNative", data: [
-                "name": call.getString("name")!,
-                "optionsJson": call.getString("optionsJson")!
             ])
         }
     }
@@ -242,14 +261,14 @@ public class BottomSheetPlugin: CAPPlugin, FloatingPanelControllerDelegate {
             layout.anchors[.half] = FloatingPanelLayoutAnchor(fractionalInset: newFractionalInset, edge: .bottom, referenceGuide: .superview)
             layout.anchors[.full] = nil
             currentHalfY = screenHeight - screenHeight * newFractionalInset
-            toggleExtraScroll(false)
             animateTo(to: .half)
+            isHalfSize = true
         } else {
             layout.anchors[.half] = nil
             layout.anchors[.full] = layout.fullAnchor
             currentHalfY = screenHeight - screenHeight * HALF_FRACTIONAL_INSET
-            toggleExtraScroll(true)
             animateTo(to: .full)
+            isHalfSize = false
         }
     }
 
@@ -260,6 +279,7 @@ public class BottomSheetPlugin: CAPPlugin, FloatingPanelControllerDelegate {
             return
         }
 
+        isHalfSize = false
         animateTo(to: .hidden)
     }
 
@@ -279,11 +299,15 @@ public class BottomSheetPlugin: CAPPlugin, FloatingPanelControllerDelegate {
 
         let timing = UICubicTimingParameters(controlPoint1: EASING_1, controlPoint2: EASING_2)
         let animator = UIViewPropertyAnimator(duration: ANIMATION_DURATION, timingParameters: timing)
+        fpc.isAnimating = true
 
         animator.addAnimations { [self] in
             fpc.move(to: to, animated: false)
         }
 
+        animator.addCompletion { [weak self] _ in
+            self?.fpc.isAnimating = false
+        }
         animator.startAnimation()
     }
 
@@ -330,65 +354,6 @@ public class BottomSheetPlugin: CAPPlugin, FloatingPanelControllerDelegate {
             resolveOpenCalls()
             bridge!.webView!.becomeFirstResponder()
         }
-    }
-
-    // This is a multi-purpose hack:
-    // 1. For some reason, we need an extra pixel on container for the scroll tracking to work.
-    // 2. However, it breaks the rubber-band effect, so we remove it when not needed.
-    // 3. Also, there are some weird defaults by Bottom Sheet Plugin which break focusing, so we override them.
-    private func toggleExtraScroll(_ withExtraScroll: Bool = false) {
-        capVc!.webView!.scrollView.contentInset = withExtraScroll
-            ? .init(top: 0, left: 0, bottom: 1, right: 0)
-            : .zero
-    }
-}
-
-// To be extracted to separate "Reduce Scroll Angle" plugin
-extension BottomSheetPlugin: UIGestureRecognizerDelegate {
-    private static let REDUCED_ANGLE = 45.0
-
-    private func setupScrollReducers() {
-        let mainGestureRecognizer = UIPanGestureRecognizer()
-        mainGestureRecognizer.delegate = self
-        bridge!.webView!.scrollView.addGestureRecognizer(mainGestureRecognizer)
-
-        let fpcGestureRecognizer = UIPanGestureRecognizer()
-        fpcGestureRecognizer.delegate = self
-        fpc.view.addGestureRecognizer(fpcGestureRecognizer)
-
-        fpc.panGestureRecognizer.isEnabled = true
-    }
-
-    private func removeScrollReducers() {
-        if let mainGestureRecognizer = bridge!.webView!.scrollView.gestureRecognizers?.first(where: { $0 is UIPanGestureRecognizer }) {
-            bridge!.webView!.scrollView.removeGestureRecognizer(mainGestureRecognizer)
-        }
-        
-        if let fpcGestureRecognizer = fpc.view.gestureRecognizers?.first(where: { $0 is UIPanGestureRecognizer }) {
-            fpc.view.removeGestureRecognizer(fpcGestureRecognizer)
-        }
-        
-        fpc.panGestureRecognizer.isEnabled = false
-    }
-
-    @objc public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        if let panGestureRecognizer = gestureRecognizer as? UIPanGestureRecognizer {
-            let velocity = panGestureRecognizer.velocity(in: nil)
-            let angle = atan2(abs(velocity.y), abs(velocity.x)) * 180 / .pi
-
-            if angle < Self.REDUCED_ANGLE {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    @objc public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-
-        otherGestureRecognizer.require(toFail: gestureRecognizer)
-
-        return true
     }
 }
 

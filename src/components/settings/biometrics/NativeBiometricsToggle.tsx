@@ -1,10 +1,14 @@
-import { Dialog } from '@capacitor/dialog';
+import { Dialog } from 'native-dialog';
 import React, { memo } from '../../../lib/teact/teact';
 import { getActions, withGlobal } from '../../../global';
 
 import renderText from '../../../global/helpers/renderText';
-import { getIsFaceIdAvailable, getIsTouchIdAvailable } from '../../../util/capacitor';
-import { IS_DELEGATED_BOTTOM_SHEET } from '../../../util/windowEnvironment';
+import {
+  getIsFaceIdAvailable,
+  getIsNativeBiometricAuthSupported,
+  getIsTouchIdAvailable,
+} from '../../../util/capacitor';
+import { IS_DELEGATED_BOTTOM_SHEET, IS_IOS } from '../../../util/windowEnvironment';
 
 import useFlag from '../../../hooks/useFlag';
 import useLang from '../../../hooks/useLang';
@@ -19,6 +23,7 @@ import modalStyles from '../../ui/Modal.module.scss';
 import styles from '../Settings.module.scss';
 
 import biometricsImg from '../../../assets/settings/settings_biometrics.svg';
+import faceIdImg from '../../../assets/settings/settings_face-id.svg';
 
 interface OwnProps {
   onEnable: NoneToVoidFunction;
@@ -30,18 +35,20 @@ interface StateProps {
 
 function NativeBiometricsToggle({ isBiometricAuthEnabled, onEnable }: OwnProps & StateProps) {
   const { disableNativeBiometrics } = getActions();
-  const isFaceId = getIsFaceIdAvailable();
+  const isFaceId = getIsFaceIdAvailable() || (!getIsNativeBiometricAuthSupported() && IS_IOS);
   const isTouchId = getIsTouchIdAvailable();
 
   const lang = useLang();
   const [isWarningModalOpen, openWarningModal, closeWarningModal] = useFlag();
   const switcherTitle = isFaceId ? 'Face ID' : (isTouchId ? 'Touch ID' : lang('Biometric Authentication'));
   const warningTitle = isFaceId
-    ? 'Turn Off Face ID?'
-    : (isTouchId ? 'Turn Off Touch ID?' : 'Turn Off Biometrics?');
+    ? 'Turn Off Face ID'
+    : (isTouchId ? 'Turn Off Touch ID' : 'Turn Off Biometrics');
   const warningDescription = isFaceId
     ? 'Are you sure you want to disable Face ID?'
     : (isTouchId ? 'Are you sure you want to disable Touch ID?' : 'Are you sure you want to disable biometrics?');
+
+  const icon = isFaceId ? faceIdImg : biometricsImg;
 
   const handleConfirmDisableBiometrics = useLastCallback(() => {
     closeWarningModal();
@@ -56,6 +63,7 @@ function NativeBiometricsToggle({ isBiometricAuthEnabled, onEnable }: OwnProps &
         title: lang(warningTitle),
         message: lang(warningDescription),
         okButtonTitle: lang('Yes'),
+        cancelButtonTitle: lang('Cancel'),
       })
         .then(({ value }) => {
           if (value) {
@@ -100,7 +108,7 @@ function NativeBiometricsToggle({ isBiometricAuthEnabled, onEnable }: OwnProps &
   return (
     <div className={styles.block}>
       <div className={styles.item} onClick={handleBiometricAuthToggle}>
-        <img className={styles.menuIcon} src={biometricsImg} alt="" />
+        <img className={styles.menuIcon} src={icon} alt="" />
         {switcherTitle}
 
         <Switcher

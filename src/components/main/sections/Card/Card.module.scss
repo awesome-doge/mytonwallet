@@ -6,6 +6,7 @@
 
 .containerWrapper {
   position: relative;
+  z-index: var(--z-card);
 
   box-sizing: border-box;
   width: 100%;
@@ -93,6 +94,7 @@
   }
 
   &.tokenCard {
+    z-index: 2;
     transform: translateY(0.625rem) scale(1.05);
 
     padding: 1rem;
@@ -146,6 +148,10 @@
   }
 }
 
+.balanceTransition {
+  max-height: 2.5rem;
+}
+
 .primaryValue {
   font-size: 2.5rem;
   font-weight: 800;
@@ -157,6 +163,37 @@
   font-size: 1.1875rem;
   font-weight: 800;
   color: var(--color-card-second-text);
+
+  :global(.glare-text) & {
+    color: transparent;
+  }
+}
+
+.iconCaret {
+  position: relative;
+  top: -0.1875rem;
+  left: -0.0625rem;
+
+  font-size: 1.125rem;
+}
+
+.iconCaretSmall {
+  font-size: 0.875rem;
+  line-height: 0.875rem;
+  vertical-align: -1px;
+}
+
+.iconCaretFraction {
+  position: relative;
+  top: 0.0625rem;
+  left: 0.0625rem;
+
+  font-size: 0.875rem;
+  color: var(--color-card-second-text);
+}
+
+.currencySwitcher {
+  cursor: var(--custom-cursor, pointer);
 }
 
 .addressContainer {
@@ -203,7 +240,7 @@
   vertical-align: -0.1875rem;
 }
 
-.tonscanButton {
+.tonExplorerButton {
   font-size: 1.25rem;
   line-height: 1;
   color: var(--color-card-second-text);
@@ -295,8 +332,7 @@
 }
 
 .tokenHistoryPrice {
-  bottom: 1rem;
-  left: 1rem;
+  bottom: 0;
 }
 
 .tokenCurrentPrice {
@@ -344,27 +380,25 @@
   border-radius: 0.25rem;
 }
 
-.cmcButton {
+.tokenTonExplorerButton {
   position: relative;
   top: 0.25rem;
 
   font-size: 1rem;
   line-height: 0.625rem;
-  color: var(--color-card-text);
+  color: var(--color-card-second-text) !important;
   text-decoration: none !important;
 
-  transition: opacity 150ms;
-
-  &:hover,
-  &:focus {
-    color: var(--color-card-text);
-
-    opacity: 0.8;
-  }
+  transition: color 150ms;
 
   &:active {
     // Optimization
     transition: none;
+  }
+
+  &:hover,
+  &:focus-visible {
+    color: var(--color-card-text) !important;
   }
 
   :global(html.animation-level-0) & {
@@ -425,17 +459,27 @@
 }
 
 .periodChooser {
+  cursor: pointer;
+
   position: absolute;
-  bottom: 0.625rem;
+  bottom: 1.25rem;
   left: 50%;
   transform: translateX(-50%);
 
   display: flex;
-  gap: 0.25rem;
+  align-items: center;
 
-  &.compact {
-    gap: 0.1875rem;
-  }
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--color-card-text);
+
+  transition: opacity 0.15s ease;
+}
+
+.periodChooserHidden {
+  pointer-events: none;
+
+  opacity: 0;
 }
 
 .periodItem {
@@ -520,4 +564,16 @@
 
   font-size: 1.25rem;
   line-height: 1rem;
+}
+
+.loadingDotsContainer {
+  position: absolute;
+  z-index: 1;
+  top: 0.5625rem;
+  left: 50%;
+  transform: translateX(-50%) scale(0.6);
+
+  height: 0.375rem !important;
+
+  opacity: 0.75 !important;
 }

@@ -5,4 +5,6 @@
     <string name="package_name">org.mytonwallet.app</string>
     <string name="custom_url_scheme_0">ton</string>
     <string name="custom_url_scheme_1">tc</string>
+    <string name="custom_url_scheme_2">mytonwallet-tc</string>
+    <string name="custom_url_scheme_3">mtw</string>
 </resources>

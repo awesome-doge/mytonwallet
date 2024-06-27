@@ -7,45 +7,21 @@
   top: 0.375rem;
   left: 0.25rem;
 
-  overflow: hidden;
+  display: inline-grid;
+  grid-template-areas: "title icon";
 
   max-width: calc(100% - 4rem);
-  padding: 0.75rem;
+  padding: 0.75rem 1.5rem 0.75rem 0.75rem;
 
   font-size: 1.0625rem;
   font-weight: 700;
   color: var(--color-card-text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 
   transition: color 150ms;
-
-  &::after {
-    content: '';
-
-    position: absolute;
-    top: calc(50% - 0.0625rem);
-    right: 0;
-
-    width: 0.4375rem;
-    height: 0.1875rem;
-
-    background: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNyIgaGVpZ2h0PSIzIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0zLjE3NSAyLjcyMSAxLjAyNi44OEEuNS41IDAgMCAxIDEuMzUyIDBoNC4yOTZhLjUuNSAwIDAgMSAuMzI2Ljg4TDMuODI1IDIuNzJhLjUuNSAwIDAgMS0uNjUgMFoiIGZpbGw9IiNmZmYiLz48L3N2Zz4=);
-
-    transition: opacity 150ms;
-
-    :global(html.animation-level-0) & {
-      transition: none !important;
-    }
-  }
 
   &:focus,
   &:hover {
     color: var(--color-card-text-hover);
-
-    &::after {
-      opacity: 0.7;
-    }
   }
 
   &:active {
@@ -61,12 +37,31 @@
     top: 1.125rem;
     left: 1rem;
 
-    padding: 0 0.75rem 0 0;
+    padding: 0 0.6875rem 0 0;
   }
+}
+
+.accountTitleInner {
+  overflow: hidden;
+  grid-area: title;
+
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .accountTitleShort {
   max-width: calc(100% - 6rem);
+}
+
+.arrowIcon {
+  position: relative;
+  top: 0.3125rem;
+
+  grid-area: icon;
+
+  font-size: 0.8125rem;
+  line-height: 0.8125rem;
+  vertical-align: 0;
 }
 
 .menuButton {
@@ -187,7 +182,7 @@
 .container {
   position: absolute;
   z-index: 3;
-  top: 2.75rem;
+  top: 2.8125rem;
   right: 0.5rem;
   left: 0.5rem;
 
@@ -239,13 +234,13 @@
   max-height: 16rem;
   padding: 0.5rem !important;
 
-  @include adapt-padding-to-scrollbar(0.5rem, !important);
-
   background-color: var(--color-background-drop-down);
   border-radius: var(--border-radius-default);
   box-shadow: var(--default-shadow);
 
   transition: var(--dropdown-transition), scrollbar-color 300ms !important;
+
+  scrollbar-width: none !important;
 
   &_compact {
     grid-template-columns: 1fr 1fr;
@@ -259,6 +254,10 @@
 
   :global(html.animation-level-0) & {
     transition: none !important;
+  }
+
+  &::-webkit-scrollbar {
+    display: none !important;
   }
 }
 

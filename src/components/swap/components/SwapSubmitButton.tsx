@@ -1,14 +1,15 @@
-import React, {
-  memo, useRef,
-} from '../../../lib/teact/teact';
+import React, { memo, useRef } from '../../../lib/teact/teact';
 
-import type { UserSwapToken } from '../../../global/types';
+import type { DieselStatus, UserSwapToken } from '../../../global/types';
 import { SwapErrorType, SwapType } from '../../../global/types';
 
+import { ANIMATION_END_DELAY } from '../../../config';
 import { formatCurrencySimple } from '../../../util/formatNumber';
 
+import { useThrottledSignal } from '../../../hooks/useAsyncResolvers';
+import useDerivedSignal from '../../../hooks/useDerivedSignal';
+import useDerivedState from '../../../hooks/useDerivedState';
 import useLang from '../../../hooks/useLang';
-import useSyncEffect from '../../../hooks/useSyncEffect';
 
 import Button from '../../ui/Button';
 import Transition from '../../ui/Transition';
@@ -18,12 +19,13 @@ import styles from '../Swap.module.scss';
 interface OwnProps {
   tokenIn?: UserSwapToken;
   tokenOut?: UserSwapToken;
-  amountIn?: number;
-  amountOut?: number;
+  amountIn?: string;
+  amountOut?: string;
   swapType?: SwapType;
   isEstimating?: boolean;
   isSending?: boolean;
-  isEnoughTON?: boolean;
+  isEnoughToncoin?: boolean;
+  dieselStatus?: DieselStatus;
   isPriceImpactError?: boolean;
   canSubmit?: boolean;
   errorType?: SwapErrorType;
@@ -33,6 +35,8 @@ interface OwnProps {
   };
 }
 
+const BUTTON_ANIMATION_DURATION = 250 + ANIMATION_END_DELAY;
+
 function SwapSubmitButton({
   tokenIn,
   tokenOut,
@@ -41,7 +45,8 @@ function SwapSubmitButton({
   swapType,
   isEstimating,
   isSending,
-  isEnoughTON,
+  isEnoughToncoin,
+  dieselStatus,
   isPriceImpactError,
   canSubmit,
   errorType,
@@ -50,18 +55,19 @@ function SwapSubmitButton({
   const lang = useLang();
 
   const isErrorExist = errorType !== undefined;
-  const shouldSendingBeVisible = isSending && swapType === SwapType.CrosschainToTon;
+  const shouldSendingBeVisible = isSending && swapType === SwapType.CrosschainToToncoin;
   const isDisabled = !canSubmit || shouldSendingBeVisible;
   const isLoading = isEstimating || shouldSendingBeVisible;
 
   const errorMsgByType = {
+    [SwapErrorType.UnexpectedError]: lang('Unexpected Error'),
     [SwapErrorType.InvalidPair]: lang('Invalid Pair'),
     [SwapErrorType.NotEnoughLiquidity]: lang('Insufficient liquidity'),
     [SwapErrorType.ChangellyMinSwap]: lang('Minimum amount', {
-      value: formatCurrencySimple(Number(limits?.fromMin ?? 0), tokenIn?.symbol ?? '', tokenIn?.decimals),
+      value: formatCurrencySimple(limits?.fromMin ?? '0', tokenIn?.symbol ?? '', tokenIn?.decimals),
     }),
     [SwapErrorType.ChangellyMaxSwap]: lang('Maximum amount', {
-      value: formatCurrencySimple(Number(limits?.fromMax ?? 0), tokenIn?.symbol ?? '', tokenIn?.decimals),
+      value: formatCurrencySimple(limits?.fromMax ?? '0', tokenIn?.symbol ?? '', tokenIn?.decimals),
     }),
   };
 
@@ -74,28 +80,36 @@ function SwapSubmitButton({
 
   if (isTouched && isErrorExist) {
     text = errorMsgByType[errorType];
-  } else if (isTouched && !isEnoughTON && swapType !== SwapType.CrosschainToTon) {
-    text = lang('Not enough TON');
+  } else if (isTouched && !isEnoughToncoin && swapType !== SwapType.CrosschainToToncoin) {
+    if (dieselStatus === 'not-available') {
+      text = lang('Not Enough TON');
+    } else if (dieselStatus === 'pending-previous') {
+      text = lang('Awaiting Previous Fee');
+    } else if (dieselStatus === 'not-authorized') {
+      text = lang('Authorize %token% Fee', { token: tokenIn?.symbol });
+    }
   }
 
-  let shouldShowError = !isEstimating && ((isPriceImpactError || isErrorExist || !isEnoughTON));
+  const textStr = Array.isArray(text) ? text.join('') : text;
 
-  if (swapType === SwapType.CrosschainToTon) {
-    shouldShowError = !isEstimating && ((isPriceImpactError || isErrorExist));
+  let shouldShowError = !isEstimating && (
+    isPriceImpactError
+    || isErrorExist
+    || (!isEnoughToncoin && (dieselStatus === 'not-available' || dieselStatus === 'pending-previous'))
+  );
+
+  if (swapType === SwapType.CrosschainToToncoin) {
+    shouldShowError = !isEstimating && (isPriceImpactError || isErrorExist);
   }
 
-  const buttonTransitionKeyRef = useRef(0);
-  const buttonStateStr = `${text}_${!canSubmit}_${isTouched && shouldShowError}`;
+  const isDestructive = isTouched && shouldShowError;
 
-  useSyncEffect(() => {
-    buttonTransitionKeyRef.current++;
-  }, [buttonStateStr]);
-
-  return (
+  const transitionKeyRef = useRef(0);
+  const render = useDerivedSignal(() => (
     <Transition
-      name="fade"
+      name="semiFade"
       className={styles.footerButtonWrapper}
-      activeKey={buttonTransitionKeyRef.current}
+      activeKey={transitionKeyRef.current++}
     >
       <Button
         className={styles.footerButton}
@@ -103,12 +117,16 @@ function SwapSubmitButton({
         isPrimary
         isSubmit
         isLoading={isLoading}
-        isDestructive={isTouched && shouldShowError}
+        isDestructive={isDestructive}
       >
-        {text}
+        {textStr}
       </Button>
     </Transition>
-  );
+  ), [isDestructive, isDisabled, isLoading, textStr]);
+  const renderThrottled = useThrottledSignal(render, BUTTON_ANIMATION_DURATION);
+  const rendered = useDerivedState(renderThrottled);
+
+  return rendered;
 }
 
 export default memo(SwapSubmitButton);

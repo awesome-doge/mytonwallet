@@ -1,5 +1,5 @@
 import React, { memo } from '../../lib/teact/teact';
-import { getActions } from '../../global';
+import { getActions, withGlobal } from '../../global';
 
 import { APP_NAME, MNEMONIC_COUNT } from '../../config';
 import renderText from '../../global/helpers/renderText';
@@ -16,12 +16,18 @@ import styles from './Auth.module.scss';
 
 import logoPath from '../../assets/logo.svg';
 
-const AuthStart = () => {
+interface StateProps {
+  hasAccounts?: boolean;
+  isLoading?: boolean;
+}
+
+function AuthStart({ hasAccounts, isLoading }: StateProps) {
   const {
     startCreatingWallet,
     startImportingWallet,
     openAbout,
     openHardwareWalletModal,
+    resetAuth,
   } = getActions();
 
   const lang = useLang();
@@ -30,6 +36,13 @@ const AuthStart = () => {
 
   return (
     <div className={buildClassName(styles.container, 'custom-scroll')}>
+      {hasAccounts && (
+        <Button isSimple isText onClick={resetAuth} className={styles.headerBack}>
+          <i className={buildClassName(styles.iconChevron, 'icon-chevron-left')} aria-hidden />
+          <span>{lang('Back')}</span>
+        </Button>
+      )}
+
       <img
         src={logoPath}
         alt={APP_NAME}
@@ -52,22 +65,23 @@ const AuthStart = () => {
         <Button
           isPrimary
           className={styles.btn}
-          onClick={startCreatingWallet}
+          isLoading={isLoading}
+          onClick={!isLoading ? startCreatingWallet : undefined}
         >
           {lang('Create Wallet')}
         </Button>
-        <span className={styles.importText}>{lang('Or import from...')}</span>
+        <span className={styles.importText}>{lang('or import from')}</span>
         <div className={styles.importButtons}>
           <Button
             className={buildClassName(styles.btn, !IS_LEDGER_SUPPORTED && styles.btn_single)}
-            onClick={startImportingWallet}
+            onClick={!isLoading ? startImportingWallet : undefined}
           >
             {lang('%1$d Secret Words', MNEMONIC_COUNT)}
           </Button>
           {IS_LEDGER_SUPPORTED && (
             <Button
               className={buildClassName(styles.btn, styles.btn_mini)}
-              onClick={openHardwareWalletModal}
+              onClick={!isLoading ? openHardwareWalletModal : undefined}
             >
               {lang('Ledger')}
             </Button>
@@ -76,6 +90,11 @@ const AuthStart = () => {
       </div>
     </div>
   );
-};
+}
 
-export default memo(AuthStart);
+export default memo(withGlobal((global): StateProps => {
+  return {
+    hasAccounts: Boolean(global.currentAccountId),
+    isLoading: global.auth.isLoading,
+  };
+})(AuthStart));

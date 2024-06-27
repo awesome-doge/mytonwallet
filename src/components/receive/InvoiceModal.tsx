@@ -4,11 +4,11 @@ import { withGlobal } from '../../global';
 import type { UserToken } from '../../global/types';
 import type { DropdownItem } from '../ui/Dropdown';
 
-import { TON_TOKEN_SLUG } from '../../config';
-import { humanToBigStr } from '../../global/helpers';
+import { DEFAULT_DECIMAL_PLACES, TONCOIN_SLUG } from '../../config';
 import renderText from '../../global/helpers/renderText';
 import { selectAccount, selectCurrentAccountTokens } from '../../global/selectors';
 import buildClassName from '../../util/buildClassName';
+import { fromDecimal, toDecimal } from '../../util/decimals';
 import formatTransferUrl from '../../util/ton/formatTransferUrl';
 import { ASSET_LOGO_PATHS } from '../ui/helpers/assetLogos';
 
@@ -41,12 +41,12 @@ function InvoiceModal({
 }: StateProps & OwnProps) {
   const lang = useLang();
 
-  const [amount, setAmount] = useState<number | undefined>(undefined);
+  const [amount, setAmount] = useState<bigint | undefined>(undefined);
   const [comment, setComment] = useState<string>('');
   const [hasAmountError, setHasAmountError] = useState<boolean>(false);
 
-  const invoiceAmount = amount ? humanToBigStr(amount) : undefined;
-  const invoiceUrl = address ? formatTransferUrl(address, invoiceAmount, comment) : '';
+  const invoiceUrl = address ? formatTransferUrl(address, amount, comment) : '';
+  const decimals = DEFAULT_DECIMAL_PLACES; // TODO Change it after token selection is supported
 
   const dropdownItems = useMemo(() => {
     if (!tokens) {
@@ -54,7 +54,7 @@ function InvoiceModal({
     }
 
     return tokens.reduce<DropdownItem[]>((acc, token) => {
-      if (token.slug === TON_TOKEN_SLUG) {
+      if (token.slug === TONCOIN_SLUG) {
         acc.push({
           value: token.slug,
           icon: token.image || ASSET_LOGO_PATHS[token.symbol.toLowerCase() as keyof typeof ASSET_LOGO_PATHS],
@@ -66,15 +66,17 @@ function InvoiceModal({
     }, []);
   }, [tokens]);
 
-  const handleAmountInput = useLastCallback((value?: number) => {
+  const handleAmountInput = useLastCallback((stringValue?: string) => {
     setHasAmountError(false);
 
-    if (value === undefined) {
+    if (!stringValue) {
       setAmount(undefined);
       return;
     }
 
-    if (Number.isNaN(value) || value < 0) {
+    const value = fromDecimal(stringValue, decimals);
+
+    if (value < 0) {
       setHasAmountError(true);
       return;
     }
@@ -83,7 +85,7 @@ function InvoiceModal({
   });
 
   function renderTokens() {
-    return <Dropdown items={dropdownItems} selectedValue={TON_TOKEN_SLUG} className={styles.tokenDropdown} />;
+    return <Dropdown items={dropdownItems} selectedValue={TONCOIN_SLUG} className={styles.tokenDropdown} />;
   }
 
   return (
@@ -102,7 +104,7 @@ function InvoiceModal({
         key="amount"
         id="amount"
         hasError={hasAmountError}
-        value={amount}
+        value={amount === undefined ? undefined : toDecimal(amount)}
         labelText={lang('Amount')}
         onChange={handleAmountInput}
       >

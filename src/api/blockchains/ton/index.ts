@@ -1,16 +1,21 @@
 export {
   encryptMnemonic,
+  decryptMnemonic,
   fetchMnemonic,
   generateMnemonic,
-  mnemonicToSeed,
   rawSign,
-  seedToKeyPair,
+  mnemonicToKeyPair,
   validateMnemonic,
   verifyPassword,
   fetchPrivateKey,
 } from './auth';
-export { getAccountNfts, getNftUpdates } from './nfts';
-export { oneCellFromBoc } from './util/tonweb';
+export {
+  getAccountNfts,
+  getNftUpdates,
+  checkNftTransferDraft,
+  submitNftTransfers,
+} from './nfts';
+export { oneCellFromBoc } from './util/tonCore';
 export { buildTokenSlug } from './util';
 export {
   checkTransactionDraft,
@@ -18,7 +23,7 @@ export {
   getAccountTransactionSlice,
   getTokenTransactionSlice,
   submitTransfer,
-  waitLastTransfer,
+  waitPendingTransfer,
   checkMultiTransactionDraft,
   submitMultiTransfer,
   getMergedTransactionSlice,
@@ -26,6 +31,9 @@ export {
   sendSignedMessages,
   decryptComment,
   waitUntilTransactionAppears,
+  fixTokenActivitiesAddressForm,
+  submitTransferWithDiesel,
+  fetchEstimateDiesel,
 } from './transactions';
 export {
   getAccountBalance,
@@ -39,6 +47,9 @@ export {
   isAddressInitialized,
   isActiveSmartContract,
   getWalletInfo,
+  pickWalletByAddress,
+  getWalletVersions,
+  getWalletVersionInfos,
 } from './wallet';
 export {
   checkStakeDraft,
@@ -53,16 +64,20 @@ export {
 } from './other';
 export {
   getAccountTokenBalances,
+  getAddressTokenBalances,
   fetchToken,
   resolveTokenBySlug,
 } from './tokens';
 export {
   resolveTokenWalletAddress,
   resolveTokenMinterAddress,
-} from './util/tonweb';
+} from './util/tonCore';
 export {
   parsePayloadBase64,
 } from './util/metadata';
 export {
   normalizeAddress,
 } from './address';
+export {
+  validateDexSwapTransfers,
+} from './swap';

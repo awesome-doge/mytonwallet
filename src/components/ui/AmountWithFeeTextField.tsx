@@ -9,12 +9,14 @@ import useLang from '../../hooks/useLang';
 import styles from './AmountWithFeeTextField.module.scss';
 
 interface OwnProps {
-  amount: number;
+  amount: string;
   label: string;
   currency?: string;
   symbol?: string;
-  fee?: number;
+  fee?: string;
+  feeSymbol?: string;
   className?: string;
+  labelClassName?: string;
 }
 
 function AmountWithFeeTextField({
@@ -23,13 +25,15 @@ function AmountWithFeeTextField({
   currency = '',
   symbol,
   fee,
+  feeSymbol = TON_SYMBOL,
   className,
+  labelClassName,
 }: OwnProps) {
   const lang = useLang();
 
   return (
     <>
-      <div className={styles.label}>{label}</div>
+      <div className={buildClassName(styles.label, labelClassName)}>{label}</div>
       <div className={buildClassName(styles.root, className)}>
         {formatCurrencyExtended(amount, currency, true)}
         {symbol && <span className={styles.suffix}>{symbol}</span>}
@@ -37,7 +41,7 @@ function AmountWithFeeTextField({
           <>
             <div className={styles.feeLabel}>{lang('Fee')}</div>
             <span className={styles.feeConfirm}>
-              {formatCurrencyExtended(fee, TON_SYMBOL)}
+              {formatCurrencyExtended(fee, feeSymbol)}
             </span>
           </>
         )}

@@ -1,6 +1,8 @@
 import { StakingState } from '../../types';
 
+import { areDeepEqual } from '../../../util/areDeepEqual';
 import { buildCollectionByKey, pick } from '../../../util/iteratees';
+import { openUrl } from '../../../util/openUrl';
 import { IS_IOS_APP } from '../../../util/windowEnvironment';
 import { addActionHandler, getGlobal, setGlobal } from '../../index';
 import {
@@ -9,7 +11,6 @@ import {
   updateAccount,
   updateAccountStakingState,
   updateAccountState,
-  updateBalance,
   updateBalances,
   updateNft,
   updateRestrictions,
@@ -18,19 +19,13 @@ import {
   updateStakingInfo,
   updateSwapTokens,
   updateTokens,
+  updateVesting,
+  updateVestingInfo,
 } from '../../reducers';
-import { selectAccountState } from '../../selectors';
+import { selectAccountState, selectVestingPartsReadyToUnfreeze } from '../../selectors';
 
 addActionHandler('apiUpdate', (global, actions, update) => {
   switch (update.type) {
-    case 'updateBalance': {
-      global = updateBalance(global, update.accountId, update.slug, update.balance);
-      setGlobal(global);
-
-      actions.updateDeletionListForActiveTokens({ accountId: update.accountId });
-      break;
-    }
-
     case 'updateBalances': {
       global = updateBalances(global, update.accountId, update.balancesToUpdate);
       setGlobal(global);
@@ -47,8 +42,8 @@ addActionHandler('apiUpdate', (global, actions, update) => {
         backendStakingState,
       } = update;
 
-      const oldBalance = selectAccountState(global, accountId)?.staking?.balance ?? 0;
-      let balance = 0;
+      const oldBalance = selectAccountState(global, accountId)?.staking?.balance ?? 0n;
+      let balance = 0n;
 
       if (stakingState.type === 'nominators') {
         balance = stakingState.amount + stakingState.pendingDepositAmount;
@@ -70,7 +65,7 @@ addActionHandler('apiUpdate', (global, actions, update) => {
           type: stakingState.type,
           balance,
           isUnstakeRequested: !!stakingState.unstakeRequestAmount,
-          unstakeRequestedAmount: Number(stakingState.unstakeRequestAmount),
+          unstakeRequestedAmount: stakingState.unstakeRequestAmount,
           start: isPrevRoundUnlocked ? stakingCommonData.round.start : stakingCommonData.prevRound.start,
           end: isPrevRoundUnlocked ? stakingCommonData.round.unlock : stakingCommonData.prevRound.unlock,
           apy: stakingState.apy,
@@ -86,9 +81,9 @@ addActionHandler('apiUpdate', (global, actions, update) => {
 
       let shouldOpenStakingInfo = false;
       if (balance !== oldBalance && global.staking.state !== StakingState.None) {
-        if (balance === 0) {
+        if (balance === 0n) {
           global = updateStaking(global, { state: StakingState.StakeInitial });
-        } else if (oldBalance === 0) {
+        } else if (oldBalance === 0n) {
           shouldOpenStakingInfo = true;
         }
       }
@@ -125,8 +120,10 @@ addActionHandler('apiUpdate', (global, actions, update) => {
       const { accountId } = update;
       const nfts = buildCollectionByKey(update.nfts, 'address');
       global = getGlobal();
+      const currentNfts = selectAccountState(global, accountId)?.nfts;
       global = updateAccountState(global, accountId, {
         nfts: {
+          ...currentNfts,
           byAddress: nfts,
           orderedAddresses: Object.keys(nfts),
         },
@@ -165,14 +162,76 @@ addActionHandler('apiUpdate', (global, actions, update) => {
       break;
     }
 
-    case 'updateRegion': {
-      const { isLimited: isLimitedRegion } = update;
+    case 'updateConfig': {
+      const { isLimited: isLimitedRegion, isCopyStorageEnabled, supportAccountsCount } = update;
 
       global = updateRestrictions(global, {
         isLimitedRegion,
         isSwapDisabled: IS_IOS_APP && isLimitedRegion,
+        isOnRampDisabled: IS_IOS_APP && isLimitedRegion,
+        isCopyStorageEnabled,
+        supportAccountsCount,
       });
       setGlobal(global);
+      break;
+    }
+
+    case 'updateWalletVersions': {
+      const { accountId, versions, currentVersion } = update;
+      global = {
+        ...global,
+        walletVersions: {
+          ...global.walletVersions,
+          currentVersion,
+          byId: {
+            ...global.walletVersions?.byId,
+            [accountId]: versions,
+          },
+        },
+      };
+      setGlobal(global);
+      break;
+    }
+
+    case 'openUrl': {
+      openUrl(update.url, update.isExternal, update.title, update.subtitle);
+      break;
+    }
+
+    case 'requestReconnectApi': {
+      actions.initApi();
+      break;
+    }
+
+    case 'incorrectTime': {
+      if (!global.isIncorrectTimeNotificationReceived) {
+        actions.showIncorrectTimeError();
+      }
+      break;
+    }
+
+    case 'updateVesting': {
+      const { accountId, vestingInfo } = update;
+      const unfreezeRequestedIds = selectVestingPartsReadyToUnfreeze(global, accountId);
+      global = updateVestingInfo(global, accountId, vestingInfo);
+      const newUnfreezeRequestedIds = selectVestingPartsReadyToUnfreeze(global, accountId);
+      if (!areDeepEqual(unfreezeRequestedIds, newUnfreezeRequestedIds)) {
+        global = updateVesting(global, accountId, { unfreezeRequestedIds: undefined });
+      }
+      setGlobal(global);
+      break;
+    }
+
+    case 'updatingStatus': {
+      const { kind, isUpdating } = update;
+      const key = kind === 'balance' ? 'balanceUpdateStartedAt' : 'activitiesUpdateStartedAt';
+      if (isUpdating && global[key]) break;
+
+      setGlobal({
+        ...global,
+        [key]: isUpdating ? Date.now() : undefined,
+      });
+      break;
     }
   }
 });

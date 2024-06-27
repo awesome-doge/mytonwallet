@@ -24,17 +24,13 @@
   }
 }
 
-.welcomeInformation,
-.unstakeInformation {
-  margin-inline-start: 1rem;
-
-  font-size: 0.9375rem;
-}
-
 .welcomeInformation {
   display: flex;
   flex-direction: column;
 
+  margin-inline-start: 1rem;
+
+  font-size: 0.9375rem;
   font-weight: 700;
 
   &_static {
@@ -205,33 +201,44 @@
   color: var(--color-red);
 }
 
-.minAmountValue {
+.minAmountValue,
+.amountInCurrency,
+.notEnoughBalanceTextBold,
+.historyTotalValue {
   font-weight: 600;
+}
+
+.balanceContainer {
+  position: relative;
+  z-index: 1;
+
+  width: 100%;
+}
+
+.balance {
+  position: absolute;
+  top: 0rem;
+  right: 0.5rem;
+
+  display: flex;
+  gap: 0.25rem;
+
+  font-size: 0.8125rem;
+  color: var(--color-gray-1);
 }
 
 .balanceLink {
   cursor: var(--custom-cursor, pointer);
 
   font-weight: 600;
+  color: var(--color-blue);
   text-decoration: underline;
   text-decoration-style: dotted;
 
-  &:hover, &:focus {
-    text-decoration: none;
-  }
-
-  & + & {
-    position: relative;
-
-    margin-inline-start: 0.625rem;
-
-    &::before {
-      content: '·';
-
-      position: absolute;
-      left: -0.4375rem;
-
-      font-size: 0.5rem
+  @media (hover: hover) {
+    &:hover,
+    &:focus {
+      text-decoration: none;
     }
   }
 }
@@ -351,6 +358,11 @@
       border-radius: var(--border-radius-default) 0 var(--border-radius-default) var(--border-radius-default);
     }
   }
+
+  :global(.is-android) & {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
 }
 
 @include respond-below(xs) {
@@ -461,6 +473,8 @@
   top: 0;
   left: 50%;
   transform: translate(-50%, -50%);
+
+  font-size: 1rem;
 }
 
 .history {
@@ -493,10 +507,6 @@
   }
 }
 
-.historyTotalValue {
-  font-weight: 600;
-}
-
 .historyTitle {
   margin-left: 0.5rem;
 
@@ -520,6 +530,7 @@
 
   &_static {
     margin-right: -1rem;
+    margin-bottom: -1rem;
     margin-left: -1rem;
   }
 }
@@ -546,17 +557,48 @@
   }
 }
 
-
 .stakingShortInfoInsidePasswordForm {
   align-self: center;
 
   margin-bottom: 2rem;
 }
 
-
 .tokenIcon {
   width: 1.25rem;
   height: 1.25rem;
 
   border-radius: 50%;
+}
+
+.unstakeInfo {
+  position: relative;
+
+  display: flex;
+  flex-direction: column;
+
+  max-width: 19rem;
+  margin: 0.25rem auto 0;
+  padding: 0.75rem;
+
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-transaction-green-text);
+  text-align: center;
+
+  background: var(--color-transaction-green-background);
+  border-radius: var(--border-radius-buttons);
+}
+
+.notEnoughBalanceContent {
+  display: flex;
+  align-items: center;
+}
+
+.notEnoughBalanceText {
+  width: 19rem;
+  margin-top: 1.25rem;
+
+  font-size: 0.9375rem;
+  color: var(--color-gray-1);
+  text-align: center;
 }

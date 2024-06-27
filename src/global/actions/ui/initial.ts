@@ -1,12 +1,16 @@
 import type { Account, AccountState, NotificationType } from '../../types';
 import { ApiCommonError, ApiTransactionDraftError, ApiTransactionError } from '../../../api/types';
+import { AppState } from '../../types';
 
-import { IS_EXTENSION } from '../../../config';
+import { IS_CAPACITOR, IS_EXTENSION } from '../../../config';
 import { requestMutation } from '../../../lib/fasterdom/fasterdom';
 import { parseAccountId } from '../../../util/account';
-import { initializeSoundsForSafari } from '../../../util/appSounds';
+import authApi from '../../../util/authApi';
+import { processDeeplinkAfterSignIn } from '../../../util/deeplink';
 import { omit } from '../../../util/iteratees';
 import { clearPreviousLangpacks, setLanguage } from '../../../util/langProvider';
+import { callActionInMain } from '../../../util/multitab';
+import { initializeSounds } from '../../../util/notificationSound';
 import switchAnimationLevel from '../../../util/switchAnimationLevel';
 import switchTheme, { setStatusBarStyle } from '../../../util/switchTheme';
 import {
@@ -22,10 +26,8 @@ import {
   setScrollbarWidthProperty,
 } from '../../../util/windowEnvironment';
 import { callApi } from '../../../api';
-import {
-  addActionHandler, getActions, getGlobal, setGlobal,
-} from '../../index';
-import { updateCurrentAccountState } from '../../reducers';
+import { addActionHandler, getGlobal, setGlobal } from '../../index';
+import { updateCurrentAccountId, updateCurrentAccountState } from '../../reducers';
 import {
   selectCurrentNetwork,
   selectNetworkAccounts,
@@ -33,7 +35,7 @@ import {
   selectNewestTxIds,
 } from '../../selectors';
 
-import { callActionInMain } from '../../../hooks/useDelegatedBottomSheet';
+const ANIMATION_DELAY_MS = 320;
 
 addActionHandler('init', (_, actions) => {
   requestMutation(() => {
@@ -81,21 +83,40 @@ addActionHandler('afterInit', (global) => {
   void setLanguage(langCode);
   clearPreviousLangpacks();
 
-  if (IS_SAFARI || IS_IOS) {
-    document.addEventListener('click', initializeSoundsForSafari, { once: true });
+  if (!IS_CAPACITOR) {
+    document.addEventListener('click', initializeSounds, { once: true });
+  }
+});
+
+addActionHandler('afterSignIn', (global, actions) => {
+  setGlobal({ ...global, appState: AppState.Main });
+
+  setTimeout(() => {
+    actions.resetAuth();
+    processDeeplinkAfterSignIn();
+  }, ANIMATION_DELAY_MS);
+});
+
+addActionHandler('afterSignOut', (global, actions, payload) => {
+  if (payload?.isFromAllAccounts) {
+    if (IS_CAPACITOR && global.settings.authConfig?.kind === 'native-biometrics') {
+      authApi.removeNativeBiometrics();
+    }
+
+    actions.resetApiSettings({ areAllDisabled: true });
   }
 });
 
 addActionHandler('showDialog', (global, actions, payload) => {
-  const { message } = payload;
+  const { message, title } = payload;
 
   const newDialogs = [...global.dialogs];
-  const existingMessageIndex = newDialogs.findIndex((value) => value === message);
+  const existingMessageIndex = newDialogs.findIndex((dialog) => dialog.message === message);
   if (existingMessageIndex !== -1) {
     newDialogs.splice(existingMessageIndex, 1);
   }
 
-  newDialogs.push(message);
+  newDialogs.push({ message, title });
 
   return {
     ...global,
@@ -157,15 +178,65 @@ addActionHandler('showError', (global, actions, { error } = {}) => {
       break;
 
     case ApiTransactionError.UnsuccesfulTransfer:
-      actions.showDialog({ message: 'Transfer was unsuccessful. Try again later' });
+      actions.showDialog({ message: 'Transfer was unsuccessful. Try again later.' });
+      break;
+
+    case ApiTransactionDraftError.UnsupportedHardwareOperation:
+      actions.showDialog({ message: 'Unfortunately, this operation is not yet supported by Ledger wallet.' });
+      break;
+
+    case ApiTransactionDraftError.EncryptedDataNotSupported:
+      actions.showDialog({ message: 'Encrypted comments are not yet supported by Ledger.' });
+      break;
+
+    case ApiTransactionDraftError.InactiveContract:
+      actions.showDialog({
+        message: '$transfer_inactive_contract_error',
+      });
+      break;
+
+    case ApiTransactionDraftError.UnsupportedHardwareNftOperation:
+    case ApiTransactionError.UnsupportedHardwareNftOperation:
+      actions.showDialog({
+        message: 'Transferring NFT is not yet supported by Ledger.',
+      });
+      break;
+
+    case ApiTransactionDraftError.UnsupportedHardwareContract:
+    case ApiTransactionError.UnsupportedHardwareContract:
+      actions.showDialog({
+        message: 'Transaction to this smart contract is not yet supported by Ledger.',
+      });
+      break;
+
+    case ApiTransactionDraftError.NonAsciiCommentForHardwareOperation:
+    case ApiTransactionError.NonAsciiCommentForHardwareOperation:
+      actions.showDialog({
+        message: 'The current version of Ledger only supports English-language comments without special characters.',
+      });
+      break;
+
+    case ApiTransactionDraftError.TooLongCommentForHardwareOperation:
+    case ApiTransactionError.TooLongCommentForHardwareOperation:
+      actions.showDialog({ message: 'Comment is too long.' });
       break;
 
     case ApiTransactionError.UnsupportedHardwarePayload:
-      actions.showDialog({ message: 'The hardware wallet does not support this data format' });
+      actions.showDialog({
+        message: 'This type of transaction is not yet supported by Ledger.',
+      });
       break;
 
     case ApiCommonError.ServerError:
-      actions.showDialog({ message: 'An error on the server side. Please try again.' });
+      actions.showDialog({
+        message: window.navigator.onLine
+          ? 'An error on the server side. Please try again.'
+          : 'No internet connection. Please check your connection and try again.',
+      });
+      break;
+
+    case ApiCommonError.DebugError:
+      actions.showDialog({ message: 'Unexpected error. Please let the support know.' });
       break;
 
     case ApiCommonError.Unexpected:
@@ -285,9 +356,10 @@ addActionHandler('signOut', async (global, actions, payload) => {
         return byId;
       }, {} as Record<string, AccountState>);
 
+      global = updateCurrentAccountId(global, nextAccountId);
+
       global = {
         ...global,
-        currentAccountId: nextAccountId,
         accounts: {
           ...global.accounts!,
           byId: accountsById,
@@ -297,13 +369,14 @@ addActionHandler('signOut', async (global, actions, payload) => {
 
       setGlobal(global);
 
-      getActions().switchAccount({ accountId: nextAccountId, newNetwork: otherNetwork });
-      getActions().afterSignOut();
+      actions.switchAccount({ accountId: nextAccountId, newNetwork: otherNetwork });
+      actions.closeSettings();
+      actions.afterSignOut();
     } else {
       await callApi('resetAccounts');
 
-      getActions().afterSignOut({ isFromAllAccounts: true });
-      getActions().init();
+      actions.afterSignOut({ isFromAllAccounts: true });
+      actions.init();
     }
   } else {
     const prevAccountId = global.currentAccountId!;
@@ -317,9 +390,10 @@ addActionHandler('signOut', async (global, actions, payload) => {
     const accountsById = omit(global.accounts!.byId, [prevAccountId]);
     const byAccountId = omit(global.byAccountId, [prevAccountId]);
 
+    global = updateCurrentAccountId(global, nextAccountId);
+
     global = {
       ...global,
-      currentAccountId: nextAccountId,
       accounts: {
         ...global.accounts!,
         byId: accountsById,
@@ -329,6 +403,6 @@ addActionHandler('signOut', async (global, actions, payload) => {
 
     setGlobal(global);
 
-    getActions().afterSignOut();
+    actions.afterSignOut();
   }
 });

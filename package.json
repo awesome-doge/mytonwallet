@@ -1,14 +1,15 @@
 {
   "name": "mytonwallet",
-  "version": "1.17.13",
+  "version": "1.20.10",
   "description": "The most feature-rich web wallet and browser extension for TON – with support of multi-accounts, tokens (jettons), NFT, TON DNS, TON Sites, TON Proxy, and TON Magic.",
   "main": "index.js",
   "scripts": {
     "dev": "cross-env APP_ENV=development webpack serve --mode development",
     "build": "webpack && bash ./deploy/copy_to_dist.sh",
+    "build:dev": "APP_ENV=development webpack --mode development && bash ./deploy/copy_to_dist.sh",
     "build:staging": "cross-env APP_ENV=staging npm run build",
     "build:production": "npm run build",
-    "extension:dev": "cross-env IS_EXTENSION=1 APP_ENV=development webpack --mode development && bash ./deploy/copy_to_dist.sh",
+    "extension:dev": "cross-env IS_EXTENSION=1 npm run build:dev",
     "extension-chrome:package": "cross-env IS_EXTENSION=1 webpack && bash ./deploy/package_extension.sh chrome",
     "extension-chrome:package:staging": "APP_ENV=staging npm run extension-chrome:package",
     "extension-chrome:package:production": "npm run extension-chrome:package",
@@ -53,7 +54,7 @@
     "*.{ts,tsx,js}": "eslint --fix",
     "*.{css,scss}": "stylelint --fix"
   },
-  "author": "My Ton Wallet",
+  "author": "MyTonWallet",
   "license": "GPL-3.0-or-later",
   "protocols": [
     {
@@ -65,7 +66,14 @@
     {
       "name": "TonConnect",
       "schemes": [
-        "tc"
+        "tc",
+        "mytonwallet-tc"
+      ]
+    },
+    {
+      "name": "MyTonWallet",
+      "schemes": [
+        "mtw"
       ]
     }
   ],
@@ -79,14 +87,13 @@
     "@babel/preset-react": "^7.18.6",
     "@babel/preset-typescript": "^7.21.0",
     "@babel/register": "^7.21.0",
-    "@capacitor/cli": "^5.3.0",
+    "@capacitor/cli": "^5.6.0",
     "@peculiar/webcrypto": "^1.3.2",
     "@playwright/test": "^1.31.2",
     "@statoscope/cli": "^5.27.0",
     "@statoscope/webpack-plugin": "^5.27.0",
     "@testing-library/jest-dom": "^5.16.5",
-    "@tonconnect/protocol": "^2.2.5",
-    "@types/bn.js": "^5.1.1",
+    "@tonconnect/protocol": "^2.2.6",
     "@types/chrome": "^0.0.191",
     "@types/croppie": "^2.6.1",
     "@types/jest": "^29.5.0",
@@ -94,6 +101,7 @@
     "@types/node": "^18.15.10",
     "@types/react": "^18.0.28",
     "@types/react-dom": "^18.0.11",
+    "@types/sha256": "^0.2.2",
     "@types/webextension-polyfill": "^0.10.1",
     "@types/webpack": "^5.28.0",
     "@types/webpack-bundle-analyzer": "^4.6.0",
@@ -168,33 +176,42 @@
     "webpack-dev-server": "^4.13.1"
   },
   "dependencies": {
-    "@capacitor-mlkit/barcode-scanning": "^5.3.0",
-    "@capacitor/android": "^5.3.0",
-    "@capacitor/app": "^5.0.6",
-    "@capacitor/core": "^5.5.1",
-    "@capacitor/dialog": "^5.0.6",
-    "@capacitor/haptics": "^5.0.6",
-    "@capacitor/ios": "^5.5.1",
-    "@capacitor/status-bar": "^5.0.6",
+    "@awesome-cordova-plugins/core": "^6.6.0",
+    "@awesome-cordova-plugins/in-app-browser": "^6.6.0",
+    "@capacitor-mlkit/barcode-scanning": "^5.4.0",
+    "@capacitor/action-sheet": "^5.0.7",
+    "@capacitor/android": "^5.7.2",
+    "@capacitor/app": "^5.0.7",
+    "@capacitor/app-launcher": "^5.0.7",
+    "@capacitor/clipboard": "^5.0.7",
+    "@capacitor/core": "^5.7.2",
+    "@capacitor/haptics": "^5.0.7",
+    "@capacitor/ios": "^5.7.2",
+    "@capacitor/status-bar": "^5.0.7",
     "@capgo/capacitor-native-biometric": "^5.1.0",
-    "@ledgerhq/hw-transport-webhid": "^6.27.12",
+    "@capgo/native-audio": "^6.2.7",
+    "@ledgerhq/hw-transport-webhid": "^6.28.1",
+    "@ledgerhq/hw-transport-webusb": "^6.28.1",
     "@mauricewegner/capacitor-navigation-bar": "^2.0.3",
-    "@ton-community/ton-ledger": "^6.0.0",
+    "@ton-community/ton-ledger": "^7.0.1",
+    "@ton/core": "^0.53.0",
+    "@ton/ton": "^13.9.0",
     "buffer": "^6.0.3",
-    "capacitor-plugin-safe-area": "^2.0.5",
+    "capacitor-native-settings": "^5.0.1",
+    "capacitor-plugin-safe-area": "^2.0.6",
+    "capacitor-secure-storage-plugin": "github:troman29/capacitor-secure-storage-plugin#22a5a9e3b368b5d9703a3011e5b7af5f0f0c7596",
     "capacitor-splash-screen": "file:mobile/plugins/capacitor-splash-screen",
+    "cordova-plugin-inappbrowser": "github:mytonwalletorg/cordova-plugin-inappbrowser#988e53fac380314d9587fb3c297bc2e810810279",
     "idb-keyval": "^6.2.0",
     "native-bottom-sheet": "file:mobile/plugins/native-bottom-sheet",
+    "native-dialog": "file:mobile/plugins/native-dialog",
     "pako": "^2.1.0",
     "qr-code-styling": "github:troman29/qr-code-styling#c00d0",
     "qrcode-generator": "^1.4.4",
-    "ton": "^13.4.1",
-    "ton-core": "^0.49.0",
-    "tonapi-sdk-js": "^0.27.0",
-    "tonweb": "github:troman29/tonweb#8376c1c4eb003412d873dee6600cb9ea91cf6163",
+    "tonapi-sdk-js": "^1.0.10",
     "tonweb-mnemonic": "^1.0.1",
     "tweetnacl": "^1.0.3",
-    "v8-compile-cache": "^2.3.0",
+    "v8-compile-cache": "^2.4.0",
     "webextension-polyfill": "^0.10.0"
   }
 }

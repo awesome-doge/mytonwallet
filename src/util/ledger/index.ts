@@ -1,31 +1,36 @@
-import {
-  Address, Builder, Cell, SendMode,
-} from 'ton-core';
 import { StatusCodes } from '@ledgerhq/errors';
 import TransportWebHID from '@ledgerhq/hw-transport-webhid';
+import TransportWebUSB from '@ledgerhq/hw-transport-webusb';
+import { loadStateInit } from '@ton/core';
 import type { TonPayloadFormat } from '@ton-community/ton-ledger';
 import { TonTransport } from '@ton-community/ton-ledger';
+import { Address } from '@ton/core/dist/address/Address';
+import { Builder } from '@ton/core/dist/boc/Builder';
+import { Cell } from '@ton/core/dist/boc/Cell';
+import { SendMode } from '@ton/core/dist/types/SendMode';
 
 import type { ApiTonConnectProof } from '../../api/tonConnect/types';
 import type {
-  ApiDappTransaction,
+  ApiDappTransfer,
+  ApiLocalTransactionParams,
   ApiNetwork,
   ApiSignedTransfer,
   ApiSubmitTransferOptions,
   Workchain,
 } from '../../api/types';
 import type { LedgerWalletInfo } from './types';
-import {
-  TRANSFER_TIMEOUT_SEC,
-  WORKCHAIN,
-} from '../../api/types';
 
-import { TON_TOKEN_SLUG } from '../../config';
+import { ONE_TON, TONCOIN_SLUG } from '../../config';
 import { callApi } from '../../api';
 import {
   DEFAULT_IS_BOUNCEABLE,
-  TOKEN_TRANSFER_TON_AMOUNT,
-  TOKEN_TRANSFER_TON_FORWARD_AMOUNT,
+  STAKE_COMMENT,
+  TOKEN_TRANSFER_TONCOIN_AMOUNT,
+  TOKEN_TRANSFER_TONCOIN_FORWARD_AMOUNT,
+  TRANSFER_TIMEOUT_SEC,
+  UNSTAKE_COMMENT,
+  WALLET_IS_BOUNCEABLE,
+  WORKCHAIN,
 } from '../../api/blockchains/ton/constants';
 import { ApiUserRejectsError, handleServerError } from '../../api/errors';
 import { parseAccountId } from '../account';
@@ -39,11 +44,11 @@ const ATTEMPTS = 10;
 const PAUSE = 125;
 const IS_BOUNCEABLE = false;
 
-let transport: TransportWebHID | undefined;
+let transport: TransportWebHID | TransportWebUSB | undefined;
 let tonTransport: TonTransport | undefined;
 
 export async function importLedgerWallet(network: ApiNetwork, accountIndex: number) {
-  const walletInfo = await getLedgerWalletInfo(network, accountIndex, IS_BOUNCEABLE);
+  const walletInfo = await getLedgerWalletInfo(network, accountIndex);
   return callApi('importLedgerWallet', network, walletInfo);
 }
 
@@ -61,7 +66,14 @@ export async function reconnectLedger() {
 
 export async function connectLedger() {
   try {
-    transport = await connectHID();
+    if (await TransportWebHID.isSupported()) {
+      transport = await connectHID();
+    } else if (await TransportWebUSB.isSupported()) {
+      transport = await connectUSB();
+    } else {
+      logDebugError('connectLedger: HID and/or USB are not supported');
+      return false;
+    }
     tonTransport = new TonTransport(transport);
     return true;
   } catch (err) {
@@ -129,30 +141,104 @@ async function connectHID() {
   throw new Error('Failed to connect');
 }
 
-export async function submitLedgerTransfer(options: ApiSubmitTransferOptions) {
+async function connectUSB() {
+  for (let i = 0; i < ATTEMPTS; i++) {
+    const [device] = await TransportWebUSB.list();
+
+    if (!device) {
+      await TransportWebUSB.create();
+      await pause(PAUSE);
+      continue;
+    }
+
+    if (device.opened) {
+      return (await TransportWebUSB.openConnected()) ?? (await TransportWebUSB.request());
+    } else {
+      return TransportWebUSB.open(device);
+    }
+  }
+
+  throw new Error('Failed to connect');
+}
+
+export async function submitLedgerStake(
+  accountId: string,
+  amount: bigint,
+  fee?: bigint,
+) {
+  const { network } = parseAccountId(accountId);
+  const address = await callApi('fetchAddress', accountId);
+  const backendState = await callApi('fetchBackendStakingState', address!, true);
+
+  const poolAddress = toBase64Address(backendState!.nominatorsPool.address, true, network);
+
+  const result = await submitLedgerTransfer({
+    accountId,
+    password: '',
+    toAddress: poolAddress,
+    amount,
+    comment: STAKE_COMMENT,
+    fee,
+  }, TONCOIN_SLUG, { type: 'stake' });
+
+  if (result) {
+    await callApi('updateAccountMemoryCache', accountId, address!, { stakedAt: Date.now() });
+  }
+
+  await callApi('onStakingChangeExpected');
+
+  return result;
+}
+
+export async function submitLedgerUnstake(accountId: string) {
+  const { network } = parseAccountId(accountId);
+  const address = await callApi('fetchAddress', accountId);
+  const backendState = await callApi('fetchBackendStakingState', address!, true);
+
+  const poolAddress = toBase64Address(backendState!.nominatorsPool.address, true, network);
+  const result = await submitLedgerTransfer({
+    accountId,
+    password: '',
+    toAddress: poolAddress,
+    amount: ONE_TON,
+    comment: UNSTAKE_COMMENT,
+  }, TONCOIN_SLUG, { type: 'unstakeRequest' });
+
+  await callApi('onStakingChangeExpected');
+
+  return result;
+}
+
+export async function submitLedgerTransfer(
+  options: ApiSubmitTransferOptions,
+  slug: string,
+  localTransactionParams?: Partial<ApiLocalTransactionParams>,
+) {
   const {
-    accountId, slug, comment, fee,
+    accountId, tokenAddress, comment, fee,
   } = options;
   let { toAddress, amount } = options;
   const { network } = parseAccountId(accountId);
 
   await callApi('waitLastTransfer', accountId);
 
-  const [path, fromAddress, seqno] = await Promise.all([
+  const fromAddress = await callApi('fetchAddress', accountId);
+
+  const [path, walletInfo] = await Promise.all([
     getLedgerAccountPath(accountId),
-    callApi('fetchAddress', accountId),
-    callApi('getWalletSeqno', accountId),
+    callApi('getWalletInfo', network, fromAddress!),
   ]);
+
+  const { seqno, balance } = walletInfo!;
 
   let payload: TonPayloadFormat | undefined;
   const parsedAddress = Address.parseFriendly(toAddress);
   let isBounceable = parsedAddress.isBounceable;
-  // Force default bounceable address for `waitTxComplete` to work properly
   const normalizedAddress = parsedAddress.address.toString({ urlSafe: true, bounceable: DEFAULT_IS_BOUNCEABLE });
 
-  if (slug !== TON_TOKEN_SLUG) {
+  if (tokenAddress) {
     ({ toAddress, amount, payload } = await buildLedgerTokenTransfer(
-      network, slug, fromAddress!, toAddress, amount, comment,
+      network, tokenAddress, fromAddress!, toAddress, amount, comment,
     ));
     isBounceable = true;
   } else if (comment) {
@@ -163,10 +249,16 @@ export async function submitLedgerTransfer(options: ApiSubmitTransferOptions) {
     }
   }
 
+  const isFullTonBalance = !tokenAddress && balance === amount;
+
+  const sendMode = isFullTonBalance
+    ? SendMode.CARRY_ALL_REMAINING_BALANCE
+    : SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS;
+
   try {
     const signedCell = await tonTransport!.signTransaction(path, {
       to: Address.parse(toAddress),
-      sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
+      sendMode,
       seqno: seqno!,
       timeout: getTransferExpirationTime(),
       bounce: isBounceable,
@@ -184,6 +276,7 @@ export async function submitLedgerTransfer(options: ApiSubmitTransferOptions) {
         comment,
         fee: fee!,
         slug,
+        ...localTransactionParams,
       },
     };
 
@@ -196,49 +289,49 @@ export async function submitLedgerTransfer(options: ApiSubmitTransferOptions) {
 
 export async function buildLedgerTokenTransfer(
   network: ApiNetwork,
-  slug: string,
+  tokenAddress: string,
   fromAddress: string,
   toAddress: string,
-  amount: string,
+  amount: bigint,
   comment?: string,
 ) {
-  const { minterAddress } = (await callApi('resolveTokenBySlug', slug))!;
-  const tokenWalletAddress = await callApi('resolveTokenWalletAddress', network, fromAddress, minterAddress!);
-  const realMinterAddress = await callApi('resolveTokenMinterAddress', network, tokenWalletAddress!);
-  if (minterAddress !== realMinterAddress) {
+  const tokenWalletAddress = await callApi('resolveTokenWalletAddress', network, fromAddress, tokenAddress);
+  const realTokenAddress = await callApi('resolveTokenMinterAddress', network, tokenWalletAddress!);
+  if (tokenAddress !== realTokenAddress) {
     throw new Error('Invalid contract');
   }
 
   // eslint-disable-next-line no-null/no-null
-  let forwardPayload: Cell | null = null;
-  if (comment) {
-    forwardPayload = new Builder()
-      .storeUint(0, 32)
-      .storeStringTail(comment)
-      .endCell();
-  }
+  const forwardPayload = comment ? buildCommentPayload(comment) : null;
 
   const payload: TonPayloadFormat = {
     type: 'jetton-transfer',
     queryId: 0n,
-    amount: BigInt(amount),
+    amount,
     destination: Address.parse(toAddress),
     responseDestination: Address.parse(fromAddress),
     // eslint-disable-next-line no-null/no-null
     customPayload: null,
-    forwardAmount: TOKEN_TRANSFER_TON_FORWARD_AMOUNT,
+    forwardAmount: TOKEN_TRANSFER_TONCOIN_FORWARD_AMOUNT,
     forwardPayload,
   };
 
   return {
-    amount: TOKEN_TRANSFER_TON_AMOUNT.toString(),
+    amount: TOKEN_TRANSFER_TONCOIN_AMOUNT,
     toAddress: tokenWalletAddress!,
     payload,
   };
 }
 
+function buildCommentPayload(comment: string) {
+  return new Builder()
+    .storeUint(0, 32)
+    .storeStringTail(comment)
+    .endCell();
+}
+
 export async function signLedgerTransactions(
-  accountId: string, messages: ApiDappTransaction[], seqno?: number,
+  accountId: string, messages: ApiDappTransfer[], seqno?: number,
 ): Promise<ApiSignedTransfer[]> {
   await callApi('waitLastTransfer', accountId);
 
@@ -253,10 +346,12 @@ export async function signLedgerTransactions(
 
   const preparedOptions = messages.map((message, index) => {
     const {
-      toAddress, amount, payload,
+      toAddress, amount, payload, stateInit: stateInitBase64,
     } = message;
 
-    let isBounceable = IS_BOUNCEABLE;
+    let isBounceable = Address.isFriendly(toAddress)
+      ? Address.parseFriendly(toAddress).isBounceable
+      : DEFAULT_IS_BOUNCEABLE;
     let ledgerPayload: TonPayloadFormat | undefined;
 
     switch (payload?.type) {
@@ -329,6 +424,10 @@ export async function signLedgerTransactions(
       }
     }
 
+    const stateInit = stateInitBase64 ? loadStateInit(
+      Cell.fromBase64(stateInitBase64).asSlice(),
+    ) : undefined;
+
     return {
       to: Address.parse(toAddress),
       sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
@@ -337,6 +436,7 @@ export async function signLedgerTransactions(
       bounce: isBounceable,
       amount: BigInt(amount),
       payload: ledgerPayload,
+      stateInit,
     };
   });
 
@@ -360,8 +460,8 @@ export async function signLedgerTransactions(
           fromAddress: fromAddress!,
           toAddress: message.toAddress,
           comment: message.payload?.type === 'comment' ? message.payload.comment : undefined,
-          fee: '0',
-          slug: TON_TOKEN_SLUG,
+          fee: 0n,
+          slug: TONCOIN_SLUG,
         },
       });
       index++;
@@ -401,14 +501,14 @@ export async function getNextLedgerWallets(
   try {
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const walletInfo = await getLedgerWalletInfo(network, index, IS_BOUNCEABLE);
+      const walletInfo = await getLedgerWalletInfo(network, index);
 
       if (alreadyImportedAddresses.includes(walletInfo.address)) {
         index += 1;
         continue;
       }
 
-      if (walletInfo.balance !== '0') {
+      if (walletInfo.balance !== 0n) {
         result.push(walletInfo);
         index += 1;
         continue;
@@ -425,12 +525,8 @@ export async function getNextLedgerWallets(
   }
 }
 
-export async function getLedgerWalletInfo(
-  network: ApiNetwork,
-  accountIndex: number,
-  isBounceable: boolean,
-): Promise<LedgerWalletInfo> {
-  const { address, publicKey } = await getLedgerWalletAddress(accountIndex, isBounceable);
+export async function getLedgerWalletInfo(network: ApiNetwork, accountIndex: number): Promise<LedgerWalletInfo> {
+  const { address, publicKey } = await getLedgerWalletAddress(accountIndex);
   const balance = (await callApi('getWalletBalance', network, address))!;
 
   return {
@@ -445,12 +541,12 @@ export async function getLedgerWalletInfo(
   };
 }
 
-export function getLedgerWalletAddress(index: number, isBounceable: boolean, isTestnet?: boolean) {
+export function getLedgerWalletAddress(index: number, isTestnet?: boolean) {
   const path = getLedgerAccountPathByIndex(index, isTestnet);
 
   return tonTransport!.getAddress(path, {
     chain: CHAIN,
-    bounceable: isBounceable,
+    bounceable: WALLET_IS_BOUNCEABLE,
   });
 }
 
@@ -475,4 +571,15 @@ function getLedgerAccountPathByIndex(index: number, isTestnet?: boolean, workcha
 
 function getTransferExpirationTime() {
   return Math.floor(Date.now() / 1000 + TRANSFER_TIMEOUT_SEC);
+}
+
+function toBase64Address(address: Address | string, isBounceable = DEFAULT_IS_BOUNCEABLE, network?: ApiNetwork) {
+  if (typeof address === 'string') {
+    address = Address.parse(address);
+  }
+  return address.toString({
+    urlSafe: true,
+    bounceable: isBounceable,
+    testOnly: network === 'testnet',
+  });
 }

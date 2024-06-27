@@ -1,4 +1,6 @@
+import { bigintReviver } from './bigint';
 import generateUniqueId from './generateUniqueId';
+import { logDebugError } from './logs';
 
 export interface CancellableCallback {
   (
@@ -88,9 +90,10 @@ class ConnectorClass<T extends InputRequestTypes> {
   private requestStatesByCallback = new Map<AnyToVoidFunction, RequestStates>();
 
   constructor(
-    public target: Worker | Window | chrome.runtime.Port,
+    public target: Worker | Window | chrome.runtime.Port | DedicatedWorkerGlobalScope,
     private onUpdate?: (update: ApiUpdate) => void,
     private channel?: string,
+    private shouldUseJson?: boolean,
     private targetOrigin = '*',
   ) {
   }
@@ -161,7 +164,16 @@ class ConnectorClass<T extends InputRequestTypes> {
     });
   }
 
-  onMessage(data: WorkerMessageData) {
+  onMessage(data: WorkerMessageData | string) {
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data, bigintReviver) as WorkerMessageData;
+      } catch (err: any) {
+        logDebugError('PostMessageConnector: Failed to parse message', err);
+        return;
+      }
+    }
+
     const { requestStates, channel } = this;
     if (data.channel !== channel) {
       return;
@@ -190,21 +202,26 @@ class ConnectorClass<T extends InputRequestTypes> {
   private postMessage(data: AnyLiteral) {
     data.channel = this.channel;
 
-    if (this.target === window) {
-      this.target.postMessage(data, this.targetOrigin);
+    let rawData: AnyLiteral | string = data;
+    if (this.shouldUseJson) {
+      rawData = JSON.stringify(data);
+    }
+
+    if ('open' in this.target) { // Is Window
+      this.target.postMessage(rawData, this.targetOrigin);
     } else {
-      this.target.postMessage(data);
+      this.target.postMessage(rawData);
     }
   }
 }
 
 export function createConnector<T extends InputRequestTypes>(
-  worker: Worker | Window,
+  worker: Worker | Window | DedicatedWorkerGlobalScope,
   onUpdate?: (update: ApiUpdate) => void,
   channel?: string,
   targetOrigin?: string,
 ) {
-  const connector = new ConnectorClass<T>(worker, onUpdate, channel, targetOrigin);
+  const connector = new ConnectorClass<T>(worker, onUpdate, channel, undefined, targetOrigin);
 
   function handleMessage({ data }: WorkerMessageEvent | MessageEvent) {
     connector.onMessage(data);
@@ -225,13 +242,13 @@ export function createExtensionConnector(
   getInitArgs?: () => any,
   channel?: string,
 ) {
-  const connector = new ConnectorClass(connect(), onUpdate, channel);
+  const connector = new ConnectorClass(connect(), onUpdate, channel, true);
 
   function connect() {
     // eslint-disable-next-line no-restricted-globals
     const port = self.chrome.runtime.connect({ name });
 
-    port.onMessage.addListener((data: WorkerMessageData) => {
+    port.onMessage.addListener((data: string | WorkerMessageData) => {
       connector.onMessage(data);
     });
 

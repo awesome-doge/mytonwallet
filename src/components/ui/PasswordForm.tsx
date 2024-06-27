@@ -85,7 +85,7 @@ function PasswordForm({
   const passwordRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState<string>('');
   const [localError, setLocalError] = useState<string>('');
-  const { isSmallHeight } = useDeviceScreen();
+  const { isSmallHeight, isPortrait } = useDeviceScreen();
   const isSubmitDisabled = !password.length;
 
   useEffect(() => {
@@ -99,7 +99,11 @@ function PasswordForm({
     try {
       const biometricPassword = await authApi.getPassword(authConfig!);
       if (!biometricPassword) {
-        setLocalError('Declined. Please try to confirm transaction using biometrics again.');
+        setLocalError(
+          operationType === 'transfer'
+            ? 'Declined. Please try to confirm transaction using biometrics again.'
+            : 'Declined. Please try to confirm operation using biometrics again.',
+        );
       } else {
         onSubmit(biometricPassword);
       }
@@ -187,13 +191,15 @@ function PasswordForm({
           </Button>
         )}
         <div className={styles.pinPadHeader}>
-          <AnimatedIconWithPreview
-            play={isActive}
-            tgsUrl={ANIMATED_STICKERS_PATHS.guard}
-            previewUrl={ANIMATED_STICKERS_PATHS.guardPreview}
-            noLoop={false}
-            nonInteractive
-          />
+          {isPortrait && (
+            <AnimatedIconWithPreview
+              play={isActive}
+              tgsUrl={ANIMATED_STICKERS_PATHS.guard}
+              previewUrl={ANIMATED_STICKERS_PATHS.guardPreview}
+              noLoop={false}
+              nonInteractive
+            />
+          )}
           {!isSmallHeight && <div className={styles.title}>{lang(title)}</div>}
           {children}
         </div>
@@ -214,16 +220,17 @@ function PasswordForm({
   }
 
   function renderBiometricPrompt() {
-    if (localError) {
+    const renderingError = localError || error;
+    if (renderingError) {
       return (
-        <div className={styles.error}>{lang(localError)}</div>
+        <div className={styles.error}>{lang(renderingError)}</div>
       );
     }
 
     return (
       <div className={styles.verify}>
         {lang(operationType === 'transfer'
-          ? 'Please confirm transaction using biometrics' : 'Please confirm operation using biometrics')}
+          ? 'Please confirm transaction using biometrics.' : 'Please confirm operation using biometrics.')}
       </div>
     );
   }
@@ -284,7 +291,7 @@ function PasswordForm({
           <Button
             isPrimary
             isLoading={isLoading}
-            isDisabled={isSubmitDisabled}
+            isDisabled={isLoading}
             onClick={!isLoading ? handleBiometrics : undefined}
             className={modalStyles.buttonHalfWidth}
           >

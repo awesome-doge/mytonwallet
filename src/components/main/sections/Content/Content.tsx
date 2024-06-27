@@ -3,14 +3,21 @@ import React, {
 } from '../../../../lib/teact/teact';
 import { getActions, withGlobal } from '../../../../global';
 
+import type { ApiNft } from '../../../../api/types';
+import type { DropdownItem } from '../../../ui/Dropdown';
 import { ContentTab } from '../../../../global/types';
 
-import { JUSDT_TOKEN_SLUG, MIN_ASSETS_TAB_VIEW, TON_TOKEN_SLUG } from '../../../../config';
+import {
+  DEFAULT_SWAP_SECOND_TOKEN_SLUG,
+  MIN_ASSETS_TAB_VIEW,
+  NOTCOIN_VOUCHERS_ADDRESS,
+  TONCOIN_SLUG,
+} from '../../../../config';
 import {
   selectAccountState,
+  selectCurrentAccountState,
   selectCurrentAccountTokens,
   selectEnabledTokensCountMemoized,
-  selectIsHardwareAccount,
 } from '../../../../global/selectors';
 import buildClassName from '../../../../util/buildClassName';
 import { captureEvents, SwipeDirection } from '../../../../util/captureEvents';
@@ -21,12 +28,16 @@ import useEffectOnce from '../../../../hooks/useEffectOnce';
 import useHistoryBack from '../../../../hooks/useHistoryBack';
 import useLang from '../../../../hooks/useLang';
 import useLastCallback from '../../../../hooks/useLastCallback';
+import useSyncEffect from '../../../../hooks/useSyncEffect';
 
 import TabList from '../../../ui/TabList';
 import Transition from '../../../ui/Transition';
 import Activity from './Activities';
 import Assets from './Assets';
+import Explore from './Explore';
+import NftCollectionHeader from './NftCollectionHeader';
 import Nfts from './Nfts';
+import NftSelectionHeader from './NftSelectionHeader';
 
 import styles from './Content.module.scss';
 
@@ -35,48 +46,107 @@ interface OwnProps {
 }
 
 interface StateProps {
-  isNftSupported: boolean;
   tokensCount: number;
+  nfts?: Record<string, ApiNft>;
+  currentCollectionAddress?: string;
+  selectedAddresses?: string[];
   activeContentTab?: ContentTab;
+  currentTokenSlug?: string;
+  blacklistedNftAddresses?: string[];
 }
+
+let activeNftKey = 0;
 
 function Content({
   activeContentTab,
   tokensCount,
+  nfts,
+  currentCollectionAddress,
+  selectedAddresses,
   onStakedTokenClick,
-  isNftSupported,
+  currentTokenSlug,
+  blacklistedNftAddresses,
 }: OwnProps & StateProps) {
   const {
     selectToken,
     setActiveContentTab,
     setDefaultSwapParams,
     changeTransferToken,
+    openNftCollection,
+    closeNftCollection,
   } = getActions();
-  const { isLandscape } = useDeviceScreen();
 
   const lang = useLang();
-  // eslint-disable-next-line no-null/no-null
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { isPortrait } = useDeviceScreen();
+  const hasNftSelection = Boolean(selectedAddresses?.length);
+
+  useSyncEffect(() => {
+    if (currentCollectionAddress) {
+      activeNftKey += 1;
+    } else {
+      activeNftKey = 0;
+    }
+  }, [currentCollectionAddress]);
+
+  const handleNftCollectionClick = useLastCallback((address: string) => {
+    openNftCollection({ address }, { forceOnHeavyAnimation: true });
+  });
+
+  const nftCollections = useMemo(() => {
+    const collections = Object.values(nfts ?? {})
+      .filter((nft) => !nft.isHidden)
+      .filter((nft) => !blacklistedNftAddresses?.includes(nft.address))
+      .reduce((acc, nft) => {
+        if (nft.collectionAddress) {
+          acc[nft.collectionAddress] = nft.collectionName || lang('Unnamed collection');
+        }
+
+        return acc;
+      }, {} as Record<string, string>);
+    const collentionAddresses = Object.keys(collections);
+    collentionAddresses.sort((left, right) => collections[left].localeCompare(collections[right]));
+
+    return collentionAddresses.map<DropdownItem>((key) => {
+      return {
+        id: key,
+        name: collections[key],
+        value: key,
+      };
+    });
+  }, [lang, nfts, blacklistedNftAddresses]);
+
   // eslint-disable-next-line no-null/no-null
   const transitionRef = useRef<HTMLDivElement>(null);
 
   const shouldShowSeparateAssetsPanel = tokensCount > 0 && tokensCount < MIN_ASSETS_TAB_VIEW;
-  const TABS = useMemo(
+  const tabs = useMemo(
     () => [
-      ...(!shouldShowSeparateAssetsPanel
-        ? [{ id: ContentTab.Assets, title: lang('Assets') as string, className: styles.tab }]
-        : []),
-      { id: ContentTab.Activity, title: lang('Activity') as string, className: styles.tab },
-      ...(isNftSupported
-        ? [{ id: ContentTab.Nft, title: lang('NFT') as string, className: styles.tab }]
-        : []),
+      ...(
+        !shouldShowSeparateAssetsPanel
+          ? [{ id: ContentTab.Assets, title: lang('Assets'), className: styles.tab }]
+          : []
+      ),
+      { id: ContentTab.Activity, title: lang('Activity'), className: styles.tab },
+      { id: ContentTab.Explore, title: lang('Explore'), className: styles.tab },
+      {
+        id: ContentTab.Nft,
+        title: lang('NFT'),
+        className: styles.tab,
+        menuItems: nftCollections,
+        onMenuItemClick: handleNftCollectionClick,
+      },
+      ...(nftCollections.some(({ value }) => value === NOTCOIN_VOUCHERS_ADDRESS) ? [{
+        id: ContentTab.NotcoinVouchers,
+        title: 'NOT Vouchers',
+        className: styles.tab,
+      }] : []),
     ],
-    [lang, shouldShowSeparateAssetsPanel, isNftSupported],
+    [lang, nftCollections, shouldShowSeparateAssetsPanel],
   );
 
   const activeTabIndex = useMemo(
     () => {
-      const tabIndex = TABS.findIndex((tab) => tab.id === activeContentTab);
+      const tabIndex = tabs.findIndex((tab) => tab.id === activeContentTab);
 
       if (tabIndex === -1) {
         return ContentTab.Assets;
@@ -84,7 +154,7 @@ function Content({
 
       return tabIndex;
     },
-    [TABS, activeContentTab],
+    [tabs, activeContentTab],
   );
 
   useEffectOnce(() => {
@@ -94,6 +164,14 @@ function Content({
   });
 
   const handleSwitchTab = useLastCallback((tab: ContentTab) => {
+    if (tab === ContentTab.NotcoinVouchers) {
+      selectToken({ slug: undefined }, { forceOnHeavyAnimation: true });
+      setActiveContentTab({ tab: ContentTab.Nft }, { forceOnHeavyAnimation: true });
+      handleNftCollectionClick(NOTCOIN_VOUCHERS_ADDRESS);
+
+      return;
+    }
+
     selectToken({ slug: undefined }, { forceOnHeavyAnimation: true });
     setActiveContentTab({ tab }, { forceOnHeavyAnimation: true });
   });
@@ -112,26 +190,37 @@ function Content({
       includedClosestSelector: '.swipe-container',
       onSwipe: (e, direction) => {
         if (direction === SwipeDirection.Left) {
-          const tab = TABS[Math.min(TABS.length - 1, activeTabIndex + 1)];
+          const tab = tabs[Math.min(tabs.length - 1, activeTabIndex + 1)];
           handleSwitchTab(tab.id);
           return true;
         } else if (direction === SwipeDirection.Right) {
-          const tab = TABS[Math.max(0, activeTabIndex - 1)];
-          handleSwitchTab(tab.id);
+          if (currentCollectionAddress) {
+            closeNftCollection();
+          } else {
+            const tab = tabs[Math.max(0, activeTabIndex - 1)];
+            handleSwitchTab(tab.id);
+          }
           return true;
         }
 
         return false;
       },
     });
-  }, [TABS, handleSwitchTab, activeTabIndex]);
+  }, [tabs, handleSwitchTab, activeTabIndex, currentCollectionAddress]);
+
+  useEffect(() => {
+    if (currentTokenSlug !== undefined) return;
+
+    setDefaultSwapParams({ tokenInSlug: undefined, tokenOutSlug: undefined });
+    changeTransferToken({ tokenSlug: TONCOIN_SLUG });
+  }, [currentTokenSlug]);
 
   const handleClickAsset = useLastCallback((slug: string) => {
     selectToken({ slug });
 
     if (slug) {
-      if (slug === TON_TOKEN_SLUG) {
-        setDefaultSwapParams({ tokenInSlug: JUSDT_TOKEN_SLUG, tokenOutSlug: slug });
+      if (slug === TONCOIN_SLUG) {
+        setDefaultSwapParams({ tokenInSlug: DEFAULT_SWAP_SECOND_TOKEN_SLUG, tokenOutSlug: slug });
       } else {
         setDefaultSwapParams({ tokenOutSlug: slug });
       }
@@ -144,42 +233,65 @@ function Content({
   const containerClassName = buildClassName(
     styles.container,
     IS_TOUCH_ENV && 'swipe-container',
-    isLandscape ? styles.landscapeContainer : styles.portraitContainer,
+    isPortrait ? styles.portraitContainer : styles.landscapeContainer,
   );
+
+  function renderTabsPanel() {
+    if (hasNftSelection) {
+      return <NftSelectionHeader />;
+    }
+
+    return currentCollectionAddress ? <NftCollectionHeader key="collection" /> : (
+      <TabList
+        tabs={tabs}
+        activeTab={activeTabIndex}
+        onSwitchTab={handleSwitchTab}
+        className={buildClassName(styles.tabs, 'content-tabslist')}
+      />
+    );
+  }
 
   function renderCurrentTab(isActive: boolean) {
     // When assets are shown separately, there is effectively no tab with index 0,
     // so we fall back to next tab to not break parent's component logic.
     if (activeTabIndex === 0 && shouldShowSeparateAssetsPanel) {
-      return <Activity isActive={isActive} mobileRef={containerRef} />;
+      return <Activity isActive={isActive} />;
     }
 
-    switch (TABS[activeTabIndex].id) {
+    switch (tabs[activeTabIndex].id) {
       case ContentTab.Assets:
         return <Assets isActive={isActive} onTokenClick={handleClickAsset} onStakedTokenClick={onStakedTokenClick} />;
       case ContentTab.Activity:
-        return <Activity isActive={isActive} mobileRef={containerRef} />;
+        return <Activity isActive={isActive} />;
       case ContentTab.Nft:
-        return <Nfts isActive={isActive} />;
+        return (
+          <Transition
+            activeKey={activeNftKey}
+            name={isPortrait ? 'slide' : 'slideFade'}
+          >
+            <Nfts key={currentCollectionAddress || 'all'} isActive={isActive} />
+          </Transition>
+        );
+      case ContentTab.Explore:
+        return <Explore isActive={isActive} />;
       default:
         return undefined;
     }
   }
 
   function renderContent() {
+    const activeKey = hasNftSelection ? 2 : (currentCollectionAddress ? 1 : 0);
+
     return (
       <>
-        <TabList
-          tabs={TABS}
-          activeTab={activeTabIndex}
-          onSwitchTab={handleSwitchTab}
-          className={buildClassName(styles.tabs, 'content-tabslist')}
-        />
+        <Transition activeKey={activeKey} name="slideFade" className={styles.tabsContainer}>
+          {renderTabsPanel()}
+        </Transition>
         <Transition
           ref={transitionRef}
-          name={isLandscape ? 'slideFade' : 'slide'}
+          name={isPortrait ? 'slide' : 'slideFade'}
           activeKey={activeTabIndex}
-          renderCount={TABS.length}
+          renderCount={tabs.length}
           className={buildClassName(styles.slides, 'content-transition')}
           slideClassName={buildClassName(styles.slide, 'custom-scroll')}
         >
@@ -190,10 +302,7 @@ function Content({
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={containerClassName}
-    >
+    <div className={containerClassName}>
       {shouldShowSeparateAssetsPanel && (
         <div className={styles.assetsPanel}>
           <Assets
@@ -204,7 +313,9 @@ function Content({
           />
         </div>
       )}
-      {isLandscape ? renderContent() : (<div className={styles.contentPanel}>{renderContent()}</div>)}
+      <div className={buildClassName(isPortrait ? styles.contentPanel : styles.landscapeContentPanel)}>
+        {renderContent()}
+      </div>
     </div>
   );
 }
@@ -215,12 +326,21 @@ export default memo(
       const accountState = selectAccountState(global, global.currentAccountId!) ?? {};
       const tokens = selectCurrentAccountTokens(global);
       const tokensCount = selectEnabledTokensCountMemoized(tokens);
-      const isLedger = selectIsHardwareAccount(global);
+      const {
+        byAddress: nfts,
+        currentCollectionAddress,
+        selectedAddresses,
+      } = selectCurrentAccountState(global)?.nfts || {};
+      const { blacklistedNftAddresses } = selectCurrentAccountState(global) ?? {};
 
       return {
+        nfts,
+        currentCollectionAddress,
+        selectedAddresses,
         tokensCount,
-        isNftSupported: !isLedger,
         activeContentTab: accountState?.activeContentTab,
+        currentTokenSlug: accountState?.currentTokenSlug,
+        blacklistedNftAddresses,
       };
     },
     (global, _, stickToFirst) => stickToFirst(global.currentAccountId),

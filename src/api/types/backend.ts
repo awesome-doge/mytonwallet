@@ -1,4 +1,4 @@
-// Decentralized swap of TON and tokens
+import type { DieselStatus } from '../../global/types';
 import type { ApiLoyaltyType } from './misc';
 
 export type ApiSwapEstimateRequest = {
@@ -7,6 +7,8 @@ export type ApiSwapEstimateRequest = {
   slippage: number;
   fromAmount?: string;
   toAmount?: string;
+  fromAddress: string;
+  shouldTryDiesel?: boolean;
 };
 
 export type ApiSwapEstimateResponse = ApiSwapEstimateRequest & {
@@ -19,11 +21,11 @@ export type ApiSwapEstimateResponse = ApiSwapEstimateRequest & {
   swapFeePercent: number;
   impact: number;
   dexLabel: string;
+  dieselStatus: DieselStatus;
 };
 
-export type ApiSwapBuildRequest = Omit<ApiSwapEstimateResponse, 'impact' | 'swapFeePercent' | 'realNetworkFee'> & {
-  fromAddress: string;
-};
+export type ApiSwapBuildRequest
+  = Omit<ApiSwapEstimateResponse, 'impact' | 'swapFeePercent' | 'realNetworkFee' | 'dieselStatus'>;
 
 export type ApiSwapTransfer = {
   toAddress: string;
@@ -33,7 +35,6 @@ export type ApiSwapTransfer = {
 
 export type ApiSwapBuildResponse = {
   id: string;
-  request: ApiSwapBuildRequest;
   transfers: ApiSwapTransfer[];
 };
 
@@ -45,9 +46,12 @@ export type ApiSwapAsset = {
   slug: string;
   decimals: number;
   isPopular: boolean;
+  price: number;
+  priceUsd: number;
   image?: string;
   contract?: string;
   keywords?: string[];
+  color?: string;
 };
 
 export type ApiSwapTonAsset = ApiSwapAsset & {
@@ -72,9 +76,10 @@ export type ApiSwapHistoryItem = {
   networkFee: number;
   swapFee: string;
   status: 'pending' | 'completed' | 'failed' | 'expired';
-  txId?: string;
+  txIds: string[];
   cex?: {
     payinAddress: string;
+    payoutAddress: string;
     payinExtraId?: string;
     status: ApiSwapCexTransactionStatus;
     transactionId: string;
@@ -125,7 +130,7 @@ export type ApiStakingCommonData = {
     nextRoundRate: number;
     collection?: string;
     apy: number;
-    available: string;
+    available: bigint;
     loyaltyApy: {
       [key in ApiLoyaltyType]: number;
     };
@@ -140,4 +145,34 @@ export type ApiStakingCommonData = {
     end: number;
     unlock: number;
   };
+  bigInt: bigint;
+};
+
+export type ApiSite = {
+  url: string;
+  name: string;
+  icon: string;
+  manifestUrl: string;
+  description: string;
+  canBeRestricted: boolean;
+  isExternal: boolean;
+};
+
+// Prices
+export type ApiPriceHistoryPeriod = '1D' | '7D' | '1M' | '3M' | '1Y' | 'ALL';
+
+// Vesting
+export type ApiVestingPartStatus = 'frozen' | 'ready' | 'unfrozen' | 'missed';
+
+export type ApiVestingInfo = {
+  id: number;
+  title: string;
+  startsAt: Date;
+  initialAmount: number;
+  parts: {
+    id: number;
+    time: string;
+    amount: number;
+    status: ApiVestingPartStatus;
+  }[];
 };

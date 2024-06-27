@@ -10,8 +10,8 @@
   text-decoration: none;
   white-space: nowrap;
 
-  &.loadingInit::after {
-    border-top-color: var(--color-gray-button-text);
+  &.loadingInit {
+    --color-dot: var(--color-gray-button-text);
   }
 
   background: none;
@@ -103,8 +103,8 @@
 
   background-color: var(--color-blue-button-background);
 
-  &.loadingInit::after {
-    border-top-color: var(--color-blue-button-text);
+  &.loadingInit {
+    --color-dot: var(--color-blue-button-text);
   }
 
   @media (hover: hover) {
@@ -137,8 +137,8 @@
 
   background-color: var(--color-red-button-background);
 
-  &.loadingInit::after {
-    border-top-color: var(--color-red-button-text);
+  &.loadingInit {
+    --color-dot: var(--color-red-button-text);
   }
 
   @media (hover: hover) {
@@ -153,7 +153,6 @@
   &[disabled] {
     opacity: 0.4;
   }
-
 
   &.isText {
     font-weight: 600;
@@ -200,50 +199,17 @@
 
 .loadingInit {
   position: relative;
-
-  &::after {
-    content: "";
-
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
-
-    width: 1rem;
-    height: 1rem;
-    margin: auto;
-
-    opacity: 0;
-    border: 0.25rem solid transparent;
-    border-radius: 50%;
-
-    transition: opacity 150ms;
-  }
 }
 
 .loadingStart {
   color: rgba(0,0,0,0) !important;
-
-  &::after {
-    content: "";
-
-    opacity: 1;
-  }
 }
 
-.loadingAnimation {
-  &::after {
-    animation: button-loading-spinner 1s linear infinite;
-  }
-}
+.loadingDots {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
 
-@keyframes button-loading-spinner {
-  from {
-    transform: rotate(0turn);
-  }
-
-  to {
-    transform: rotate(1turn);
-  }
+  height: 100%;
 }

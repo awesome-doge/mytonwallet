@@ -1,6 +1,6 @@
 import type { TeactNode } from '../../lib/teact/teact';
 import React, {
-  memo, useRef, useState,
+  memo, useEffect, useRef, useState,
 } from '../../lib/teact/teact';
 import { getActions } from '../../global';
 
@@ -8,6 +8,8 @@ import { SwapState, SwapType, type UserSwapToken } from '../../global/types';
 
 import { ANIMATED_STICKER_BIG_SIZE_PX, IS_FIREFOX_EXTENSION } from '../../config';
 import buildClassName from '../../util/buildClassName';
+import { vibrate } from '../../util/capacitor';
+import { readClipboardContent } from '../../util/clipboard';
 import { shortenAddress } from '../../util/shortenAddress';
 import getBlockchainNetworkName from '../../util/swap/getBlockchainNetworkName';
 import { IS_FIREFOX } from '../../util/windowEnvironment';
@@ -19,6 +21,7 @@ import useFlag from '../../hooks/useFlag';
 import useHistoryBack from '../../hooks/useHistoryBack';
 import useLang from '../../hooks/useLang';
 import useLastCallback from '../../hooks/useLastCallback';
+import useQrScannerSupport from '../../hooks/useQrScannerSupport';
 
 import AnimatedIconWithPreview from '../ui/AnimatedIconWithPreview';
 import Button from '../ui/Button';
@@ -48,7 +51,9 @@ function SwapBlockchain({
   tokenOut,
 }: OwnProps) {
   const {
-    cancelSwap, setSwapCexAddress, showNotification, setSwapScreen,
+    cancelSwap, setSwapCexAddress,
+    showNotification, setSwapScreen,
+    requestOpenQrScanner,
   } = getActions();
   const lang = useLang();
   const { isPortrait } = useDeviceScreen();
@@ -60,15 +65,15 @@ function SwapBlockchain({
   const [shouldRenderPasteButton, setShouldRenderPasteButton] = useState(!(IS_FIREFOX || IS_FIREFOX_EXTENSION));
   const [isAddressFocused, markAddressFocused, unmarkAddressFocused] = useFlag();
   const [hasToAddressError, setHasToAddressError] = useState(false);
-  const [canContinue, setCanContinue] = useState(swapType !== SwapType.CrosschainFromTon);
+  const [canContinue, setCanContinue] = useState(swapType !== SwapType.CrosschainFromToncoin);
+
+  const isQrScannerSupported = useQrScannerSupport();
+
+  const withPasteButton = shouldRenderPasteButton && toAddress === '';
 
   const toAddressShort = toAddress.length > MIN_ADDRESS_LENGTH_TO_SHORTEN
     ? shortenAddress(toAddress, SHORT_ADDRESS_SHIFT) || ''
     : toAddress;
-
-  const addressPlaceholder = (lang('Receiving address in blockchain', {
-    blockchain: getBlockchainNetworkName(tokenOut?.blockchain),
-  }) as TeactNode[]).join('');
 
   const handleCancelClick = useLastCallback(() => {
     setHasToAddressError(false);
@@ -104,6 +109,12 @@ function SwapBlockchain({
   });
 
   const validateToAddress = useLastCallback(async (address: string) => {
+    if (!address.length) {
+      setHasToAddressError(false);
+      setCanContinue(false);
+      return;
+    }
+
     const response = await callApi('swapCexValidateAddress', {
       slug: tokenOut?.slug!,
       address,
@@ -124,33 +135,45 @@ function SwapBlockchain({
   });
 
   const handleAddressInput = useLastCallback((newToAddress: string) => {
-    validateToAddress(newToAddress.trim());
     setSwapCexAddress({ toAddress: newToAddress.trim() });
   });
 
-  const handlePasteClick = useLastCallback(() => {
-    navigator.clipboard
-      .readText()
-      .then((clipboardText) => {
-        setSwapCexAddress({ toAddress: clipboardText.trim() });
-        validateToAddress(clipboardText.trim());
-      })
-      .catch(() => {
-        showNotification({
-          message: lang('Error reading clipboard') as string,
-        });
-        setShouldRenderPasteButton(false);
+  const handlePasteClick = useLastCallback(async () => {
+    try {
+      const { type, text } = await readClipboardContent();
+
+      if (type === 'text/plain') {
+        setSwapCexAddress({ toAddress: text.trim() });
+        validateToAddress(text.trim());
+      }
+    } catch (error) {
+      showNotification({
+        message: lang('Error reading clipboard'),
       });
+      setShouldRenderPasteButton(false);
+    }
   });
 
+  useEffect(() => {
+    validateToAddress(toAddress);
+  }, [toAddress, validateToAddress]);
+
   const submitPassword = useLastCallback(() => {
+    vibrate();
     setSwapScreen({ state: SwapState.Password });
+  });
+
+  const handleQrScanClick = useLastCallback(() => {
+    requestOpenQrScanner();
+    cancelSwap();
   });
 
   function renderInfo() {
     const text = hasToAddressError
       ? lang('Incorrect address.')
-      : lang('Please provide an address of your wallet in another blockchain to receive bought tokens.');
+      : lang('Please provide an address of your wallet in %blockchain% blockchain to receive bought tokens.', {
+        blockchain: getBlockchainNetworkName(tokenOut?.blockchain),
+      });
 
     return (
       <Transition
@@ -170,7 +193,7 @@ function SwapBlockchain({
   }
 
   function renderInputAddress() {
-    if (swapType !== SwapType.CrosschainFromTon) return undefined;
+    if (swapType !== SwapType.CrosschainFromToncoin) return undefined;
 
     return (
       <>
@@ -178,14 +201,24 @@ function SwapBlockchain({
           <Input
             ref={toAddressRef}
             isRequired
-            placeholder={addressPlaceholder}
+            placeholder={lang('Your address on another blockchain')}
             value={isAddressFocused ? toAddress : toAddressShort}
             onInput={handleAddressInput}
             onFocus={handleAddressFocus}
             onBlur={handleAddressBlur}
             wrapperClassName={styles.inputAddressWrapper}
           >
-            {shouldRenderPasteButton && toAddress === '' && (
+            {isQrScannerSupported && (
+              <Button
+                isSimple
+                className={buildClassName(styles.inputButton, withPasteButton && styles.inputButtonShifted)}
+                onClick={handleQrScanClick}
+                ariaLabel={lang('Scan QR Code')}
+              >
+                <i className="icon-qr-scanner-alt" aria-hidden />
+              </Button>
+            )}
+            {withPasteButton && (
               <Button isSimple className={styles.inputButton} onClick={handlePasteClick} ariaLabel={lang('Paste')}>
                 <i className="icon-paste" aria-hidden />
               </Button>
@@ -217,12 +250,13 @@ function SwapBlockchain({
 
         {renderInputAddress()}
 
-        <div className={buildClassName(modalStyles.buttons, styles.blockchainButtons)}>
-          <Button onClick={handleCancelClick}>{lang('Close')}</Button>
+        <div className={buildClassName(styles.blockchainButtons, modalStyles.footerButtons)}>
+          <Button onClick={handleCancelClick} className={modalStyles.buttonHalfWidth}>{lang('Close')}</Button>
           <Button
-            isDisabled={!canContinue}
-            onClick={submitPassword}
             isPrimary
+            isDisabled={!canContinue}
+            className={modalStyles.buttonHalfWidth}
+            onClick={submitPassword}
           >
             {lang('Continue')}
           </Button>

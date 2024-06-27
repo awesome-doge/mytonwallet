@@ -1,11 +1,12 @@
 import { StakingState } from '../../types';
 
-import { DEFAULT_DECIMAL_PLACES, IS_CAPACITOR } from '../../../config';
-import { Big } from '../../../lib/big.js';
+import {
+  IS_CAPACITOR, MIN_BALANCE_FOR_UNSTAKE, TONCOIN_SLUG,
+} from '../../../config';
 import { vibrateOnSuccess } from '../../../util/capacitor';
+import { callActionInMain } from '../../../util/multitab';
 import { IS_DELEGATED_BOTTOM_SHEET } from '../../../util/windowEnvironment';
 import { callApi } from '../../../api';
-import { humanToBigStr } from '../../helpers';
 import { addActionHandler, getGlobal, setGlobal } from '../../index';
 import {
   clearIsPinAccepted,
@@ -14,9 +15,7 @@ import {
   updateAccountState,
   updateStaking,
 } from '../../reducers';
-import { selectAccountState } from '../../selectors';
-
-import { callActionInMain } from '../../../hooks/useDelegatedBottomSheet';
+import { selectAccount, selectAccountState } from '../../selectors';
 
 addActionHandler('startStaking', (global, actions, payload) => {
   const isOpen = global.staking.state !== StakingState.None;
@@ -27,8 +26,18 @@ addActionHandler('startStaking', (global, actions, payload) => {
 
   const { isUnstaking } = payload || {};
 
+  const accountState = selectAccountState(global, global.currentAccountId!);
+  const balance = accountState?.balances?.bySlug[TONCOIN_SLUG] ?? 0n;
+  const isNotEnoughBalance = balance < MIN_BALANCE_FOR_UNSTAKE;
+
+  const state = isUnstaking
+    ? isNotEnoughBalance
+      ? StakingState.NotEnoughBalance
+      : StakingState.UnstakeInitial
+    : StakingState.StakeInitial;
+
   setGlobal(updateStaking(global, {
-    state: isUnstaking ? StakingState.UnstakeInitial : StakingState.StakeInitial,
+    state,
     error: undefined,
   }));
 });
@@ -44,7 +53,7 @@ addActionHandler('fetchStakingFee', async (global, actions, payload) => {
   const result = await callApi(
     'checkStakeDraft',
     currentAccountId,
-    humanToBigStr(amount!, DEFAULT_DECIMAL_PLACES),
+    amount!,
   );
   if (!result || 'error' in result) {
     return;
@@ -58,8 +67,7 @@ addActionHandler('fetchStakingFee', async (global, actions, payload) => {
 });
 
 addActionHandler('submitStakingInitial', async (global, actions, payload) => {
-  const { isUnstaking } = payload || {};
-  let { amount } = payload ?? {};
+  const { isUnstaking, amount } = payload ?? {};
   const { currentAccountId } = global;
 
   if (!currentAccountId) {
@@ -69,8 +77,7 @@ addActionHandler('submitStakingInitial', async (global, actions, payload) => {
   setGlobal(updateStaking(global, { isLoading: true, error: undefined }));
 
   if (isUnstaking) {
-    amount = selectAccountState(global, currentAccountId)!.staking!.balance;
-    const result = await callApi('checkUnstakeDraft', currentAccountId, humanToBigStr(amount));
+    const result = await callApi('checkUnstakeDraft', currentAccountId, amount!);
     global = getGlobal();
     global = updateStaking(global, { isLoading: false });
 
@@ -78,8 +85,15 @@ addActionHandler('submitStakingInitial', async (global, actions, payload) => {
       if ('error' in result) {
         global = updateStaking(global, { error: result.error });
       } else {
+        const account = selectAccount(global, currentAccountId)!;
+        if (account.isHardware) {
+          actions.resetHardwareWalletConnect();
+          global = updateStaking(getGlobal(), { state: StakingState.UnstakeConnectHardware });
+        } else {
+          global = updateStaking(global, { state: StakingState.UnstakePassword });
+        }
+
         global = updateStaking(global, {
-          state: StakingState.UnstakePassword,
           fee: result.fee,
           amount,
           error: undefined,
@@ -92,7 +106,7 @@ addActionHandler('submitStakingInitial', async (global, actions, payload) => {
     const result = await callApi(
       'checkStakeDraft',
       currentAccountId,
-      humanToBigStr(amount!, DEFAULT_DECIMAL_PLACES),
+      amount!,
     );
     global = getGlobal();
     global = updateStaking(global, { isLoading: false });
@@ -101,8 +115,15 @@ addActionHandler('submitStakingInitial', async (global, actions, payload) => {
       if ('error' in result) {
         global = updateStaking(global, { error: result.error });
       } else {
+        const account = selectAccount(global, currentAccountId)!;
+        if (account.isHardware) {
+          actions.resetHardwareWalletConnect();
+          global = updateStaking(getGlobal(), { state: StakingState.StakeConnectHardware });
+        } else {
+          global = updateStaking(global, { state: StakingState.StakePassword });
+        }
+
         global = updateStaking(global, {
-          state: StakingState.StakePassword,
           fee: result.fee,
           amount,
           error: undefined,
@@ -153,7 +174,7 @@ addActionHandler('submitStakingPassword', async (global, actions, payload) => {
     const { instantAvailable } = global.stakingInfo.liquid ?? {};
     const stakingBalance = selectAccountState(global, currentAccountId!)!.staking!.balance;
 
-    const unstakeAmount = type === 'nominators' ? humanToBigStr(stakingBalance) : tokenAmount!;
+    const unstakeAmount = type === 'nominators' ? stakingBalance : tokenAmount!;
     const result = await callApi(
       'submitUnstake',
       global.currentAccountId!,
@@ -163,9 +184,9 @@ addActionHandler('submitStakingPassword', async (global, actions, payload) => {
       fee,
     );
 
-    const isLongUnstakeRequested = type === 'liquid'
-      ? Boolean(instantAvailable) && Big(instantAvailable).lt(stakingBalance)
-      : true;
+    const isLongUnstakeRequested = Boolean(
+      type === 'nominators' || (type === 'liquid' && instantAvailable && instantAvailable < stakingBalance),
+    );
 
     global = getGlobal();
     global = updateAccountState(global, currentAccountId!, { isLongUnstakeRequested });
@@ -174,7 +195,7 @@ addActionHandler('submitStakingPassword', async (global, actions, payload) => {
 
     if (!result) {
       actions.showDialog({
-        message: 'Unstaking was unsuccessful. Try again later',
+        message: 'Unstaking was unsuccessful. Try again later.',
       });
       global = getGlobal();
 
@@ -190,7 +211,7 @@ addActionHandler('submitStakingPassword', async (global, actions, payload) => {
       'submitStake',
       global.currentAccountId!,
       password,
-      humanToBigStr(amount!, DEFAULT_DECIMAL_PLACES),
+      amount!,
       type!,
       fee,
     );
@@ -201,7 +222,7 @@ addActionHandler('submitStakingPassword', async (global, actions, payload) => {
 
     if (!result) {
       actions.showDialog({
-        message: 'Staking was unsuccessful. Try again later',
+        message: 'Staking was unsuccessful. Try again later.',
       });
 
       global = getGlobal();
@@ -215,6 +236,52 @@ addActionHandler('submitStakingPassword', async (global, actions, payload) => {
   }
 
   setGlobal(global);
+});
+
+addActionHandler('submitStakingHardware', async (global, actions, payload) => {
+  const { isUnstaking } = payload || {};
+  const { fee, amount } = global.staking;
+
+  global = updateStaking(global, {
+    isLoading: true,
+    error: undefined,
+    state: StakingState.StakeConfirmHardware,
+  });
+  setGlobal(global);
+
+  const ledgerApi = await import('../../../util/ledger');
+  global = getGlobal();
+
+  let result: string | undefined;
+  const accountId = global.currentAccountId!;
+
+  if (isUnstaking) {
+    result = await ledgerApi.submitLedgerUnstake(accountId);
+  } else {
+    result = await ledgerApi.submitLedgerStake(
+      accountId,
+      amount!,
+      fee,
+    );
+  }
+
+  global = getGlobal();
+  global = updateStaking(global, { isLoading: false });
+  setGlobal(global);
+
+  if (!result) {
+    actions.showDialog({
+      message: isUnstaking
+        ? 'Unstaking was unsuccessful. Try again later.'
+        : 'Staking was unsuccessful. Try again later.',
+    });
+  } else {
+    global = getGlobal();
+    global = updateStaking(global, {
+      state: isUnstaking ? StakingState.UnstakeComplete : StakingState.StakeComplete,
+    });
+    setGlobal(global);
+  }
 });
 
 addActionHandler('clearStakingError', (global) => {

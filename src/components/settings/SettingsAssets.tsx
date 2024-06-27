@@ -5,8 +5,9 @@ import type { ApiBaseCurrency } from '../../api/types';
 import type { UserToken } from '../../global/types';
 
 import {
+  CURRENCY_LIST,
   DEFAULT_PRICE_CURRENCY,
-  TINY_TRANSFER_MAX_COST, TON_SYMBOL,
+  TINY_TRANSFER_MAX_COST,
 } from '../../config';
 import buildClassName from '../../util/buildClassName';
 
@@ -30,40 +31,12 @@ interface OwnProps {
   orderedSlugs?: string[];
   areTinyTransfersHidden?: boolean;
   isInvestorViewEnabled?: boolean;
-  areTokensWithNoBalanceHidden?: boolean;
-  areTokensWithNoPriceHidden?: boolean;
+  areTokensWithNoCostHidden?: boolean;
   isSortByValueEnabled?: boolean;
   isInsideModal?: boolean;
   handleBackClick: NoneToVoidFunction;
   baseCurrency?: ApiBaseCurrency;
 }
-
-const CURRENCY_OPTIONS = [
-  {
-    value: 'USD',
-    name: 'US Dollar',
-  },
-  {
-    value: 'EUR',
-    name: 'Euro',
-  },
-  {
-    value: 'RUB',
-    name: 'Ruble',
-  },
-  {
-    value: 'CNY',
-    name: 'Yuan',
-  },
-  {
-    value: 'BTC',
-    name: 'Bitcoin',
-  },
-  {
-    value: 'TON',
-    name: 'Toncoin',
-  },
-];
 
 function SettingsAssets({
   isActive,
@@ -71,8 +44,7 @@ function SettingsAssets({
   orderedSlugs,
   areTinyTransfersHidden,
   isInvestorViewEnabled,
-  areTokensWithNoBalanceHidden,
-  areTokensWithNoPriceHidden,
+  areTokensWithNoCostHidden,
   isSortByValueEnabled,
   handleBackClick,
   isInsideModal,
@@ -81,8 +53,7 @@ function SettingsAssets({
   const {
     toggleTinyTransfersHidden,
     toggleInvestorView,
-    toggleTokensWithNoBalance,
-    toggleTokensWithNoPrice,
+    toggleTokensWithNoCost,
     toggleSortByValue,
     changeBaseCurrency,
   } = getActions();
@@ -109,12 +80,8 @@ function SettingsAssets({
     toggleInvestorView({ isEnabled: !isInvestorViewEnabled });
   });
 
-  const handleTokensWithNoBalanceToggle = useLastCallback(() => {
-    toggleTokensWithNoBalance({ isEnabled: !areTokensWithNoBalanceHidden });
-  });
-
   const handleTokensWithNoPriceToggle = useLastCallback(() => {
-    toggleTokensWithNoPrice({ isEnabled: !areTokensWithNoPriceHidden });
+    toggleTokensWithNoCost({ isEnabled: !areTokensWithNoCostHidden });
   });
 
   const handleSortByValueToggle = useLastCallback(() => {
@@ -124,10 +91,10 @@ function SettingsAssets({
   const [localBaseCurrency, setLocalBaseCurrency] = useState(baseCurrency);
 
   const handleBaseCurrencyChange = useLastCallback((currency: string) => {
-    if (currency !== baseCurrency) {
-      setLocalBaseCurrency(currency as ApiBaseCurrency);
-      changeBaseCurrency({ currency: currency as ApiBaseCurrency });
-    }
+    if (currency === baseCurrency) return;
+
+    setLocalBaseCurrency(currency as ApiBaseCurrency);
+    changeBaseCurrency({ currency: currency as ApiBaseCurrency });
   });
 
   return (
@@ -156,7 +123,7 @@ function SettingsAssets({
         <div className={styles.settingsBlock}>
           <Dropdown
             label={lang('Base Currency')}
-            items={CURRENCY_OPTIONS}
+            items={CURRENCY_LIST}
             selectedValue={baseCurrency ?? DEFAULT_PRICE_CURRENCY}
             theme="light"
             shouldTranslateOptions
@@ -190,7 +157,7 @@ function SettingsAssets({
                 message={
                   lang(
                     '$tiny_transfers_help',
-                    [TINY_TRANSFER_MAX_COST, TON_SYMBOL],
+                    { value: TINY_TRANSFER_MAX_COST },
                   ) as string
                 }
                 tooltipClassName={buildClassName(styles.tooltip, styles.tooltip_wide)}
@@ -207,30 +174,34 @@ function SettingsAssets({
         </div>
         <p className={styles.blockTitle}>{lang('Tokens Settings')}</p>
         <div className={styles.settingsBlock}>
-          <div className={buildClassName(styles.item, styles.item_small)} onClick={handleTokensWithNoBalanceToggle}>
-            {lang('Hide Tokens With No Balance')}
-
-            <Switcher
-              className={styles.menuSwitcher}
-              label={lang('Hide Tokens With No Balance')}
-              checked={areTokensWithNoBalanceHidden}
-            />
-          </div>
           <div className={buildClassName(styles.item, styles.item_small)} onClick={handleTokensWithNoPriceToggle}>
-            {lang('Hide Tokens With No Price')}
+            <div className={styles.blockWithTooltip}>
+              {lang('Hide Tokens With No Cost')}
+
+              <IconWithTooltip
+                message={
+                  lang(
+                    '$hide_tokens_no_cost_help',
+                    { value: TINY_TRANSFER_MAX_COST },
+                  ) as string
+                }
+                tooltipClassName={buildClassName(styles.tooltip, styles.tooltip_wide)}
+                iconClassName={styles.iconQuestion}
+              />
+            </div>
 
             <Switcher
               className={styles.menuSwitcher}
-              label={lang('Hide Tokens With No Price')}
-              checked={areTokensWithNoPriceHidden}
+              label={lang('Hide Tokens With No Cost')}
+              checked={areTokensWithNoCostHidden}
             />
           </div>
           <div className={buildClassName(styles.item, styles.item_small)} onClick={handleSortByValueToggle}>
-            {lang('Sort By Value')}
+            {lang('Sort By Cost')}
 
             <Switcher
               className={styles.menuSwitcher}
-              label={lang('Sort By Value')}
+              label={lang('Sort By Cost')}
               checked={isSortByValueEnabled}
             />
           </div>

@@ -1,29 +1,25 @@
 import type { ApiTonConnectProof } from '../tonConnect/types';
 import type { ApiActivity, ApiTransactionActivity } from './activity';
-import type { ApiStakingCommonData, ApiSwapAsset } from './backend';
+import type { ApiStakingCommonData, ApiSwapAsset, ApiVestingInfo } from './backend';
 import type { ApiAnyDisplayError } from './errors';
 import type {
   ApiBackendStakingState,
+  ApiBalanceBySlug,
   ApiBaseCurrency,
-  ApiDappTransaction,
+  ApiDappTransfer,
   ApiNft,
   ApiStakingState,
   ApiToken,
+  ApiWalletInfo,
+  ApiWalletVersion,
 } from './misc';
 import type { ApiParsedPayload } from './payload';
 import type { ApiAccount, ApiDapp } from './storage';
 
-export type ApiUpdateBalance = {
-  type: 'updateBalance';
-  accountId: string;
-  slug: string;
-  balance: string;
-};
-
 export type ApiUpdateBalances = {
   type: 'updateBalances';
   accountId: string;
-  balancesToUpdate: Record<string, string>;
+  balancesToUpdate: ApiBalanceBySlug;
 };
 
 export type ApiUpdateNewActivities = {
@@ -53,8 +49,8 @@ export type ApiUpdateCreateTransaction = {
   type: 'createTransaction';
   promiseId: string;
   toAddress: string;
-  amount: string;
-  fee: string;
+  amount: bigint;
+  fee: bigint;
   comment?: string;
   rawPayload?: string;
   parsedPayload?: ApiParsedPayload;
@@ -69,7 +65,7 @@ export type ApiUpdateCreateSignature = {
 
 export type ApiUpdateShowError = {
   type: 'showError';
-  error?: ApiAnyDisplayError;
+  error?: ApiAnyDisplayError | string;
 };
 
 export type ApiUpdateStaking = {
@@ -91,8 +87,8 @@ export type ApiUpdateDappSendTransactions = {
   promiseId: string;
   accountId: string;
   dapp: ApiDapp;
-  transactions: ApiDappTransaction[];
-  fee: string;
+  transactions: ApiDappTransfer[];
+  fee: bigint;
 };
 
 export type ApiUpdateDappConnect = {
@@ -107,6 +103,10 @@ export type ApiUpdateDappConnect = {
   proof?: ApiTonConnectProof;
 };
 
+export type ApiUpdateDappConnectComplete = {
+  type: 'dappConnectComplete';
+};
+
 export type ApiUpdateDappDisconnect = {
   type: 'dappDisconnect';
   accountId: string;
@@ -116,13 +116,29 @@ export type ApiUpdateDappDisconnect = {
 export type ApiUpdateDappLoading = {
   type: 'dappLoading';
   connectionType: 'connect' | 'sendTransaction';
+  isSse?: boolean;
+  accountId?: string;
+};
+
+export type ApiUpdateDappCloseLoading = {
+  type: 'dappCloseLoading';
+};
+
+export type ApiUpdateDapps = {
+  type: 'updateDapps';
 };
 
 export type ApiUpdatePrepareTransaction = {
   type: 'prepareTransaction';
   toAddress: string;
-  amount?: string;
+  amount?: bigint;
   comment?: string;
+  binPayload?: string;
+};
+
+export type ApiUpdateProcessDeeplink = {
+  type: 'processDeeplink';
+  url: string;
 };
 
 export type ApiUpdateNfts = {
@@ -158,13 +174,49 @@ export type ApiUpdateAccount = {
   partial: Partial<ApiAccount>;
 };
 
-export type ApiUpdateRegion = {
-  type: 'updateRegion';
+export type ApiUpdateConfig = {
+  type: 'updateConfig';
   isLimited: boolean;
+  isCopyStorageEnabled: boolean;
+  supportAccountsCount?: number;
+};
+
+export type ApiUpdateWalletVersions = {
+  type: 'updateWalletVersions';
+  accountId: string;
+  currentVersion: ApiWalletVersion;
+  versions: ApiWalletInfo[];
+};
+
+export type ApiOpenUrl = {
+  type: 'openUrl';
+  url: string;
+  isExternal?: boolean;
+  title?: string;
+  subtitle?: string;
+};
+
+export type ApiRequestReconnect = {
+  type: 'requestReconnectApi';
+};
+
+export type ApiUpdateIncorrectTime = {
+  type: 'incorrectTime';
+};
+
+export type ApiUpdateVesting = {
+  type: 'updateVesting';
+  accountId: string;
+  vestingInfo: ApiVestingInfo[];
+};
+
+export type ApiUpdatingStatus = {
+  type: 'updatingStatus';
+  kind: 'balance' | 'activities';
+  isUpdating?: boolean;
 };
 
 export type ApiUpdate =
-  ApiUpdateBalance
   | ApiUpdateBalances
   | ApiUpdateNewActivities
   | ApiUpdateNewLocalTransaction
@@ -176,13 +228,23 @@ export type ApiUpdate =
   | ApiUpdateActiveDapp
   | ApiUpdateDappSendTransactions
   | ApiUpdateDappConnect
+  | ApiUpdateDappConnectComplete
   | ApiUpdateDappDisconnect
   | ApiUpdateDappLoading
+  | ApiUpdateDappCloseLoading
+  | ApiUpdateDapps
   | ApiUpdatePrepareTransaction
+  | ApiUpdateProcessDeeplink
   | ApiUpdateShowError
   | ApiUpdateNfts
   | ApiNftUpdate
   | ApiUpdateAccount
-  | ApiUpdateRegion;
+  | ApiUpdateConfig
+  | ApiUpdateWalletVersions
+  | ApiOpenUrl
+  | ApiRequestReconnect
+  | ApiUpdateIncorrectTime
+  | ApiUpdateVesting
+  | ApiUpdatingStatus;
 
 export type OnApiUpdate = (update: ApiUpdate) => void;

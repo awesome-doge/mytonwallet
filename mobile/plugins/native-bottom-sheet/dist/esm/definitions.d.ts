@@ -1,9 +1,11 @@
 import { PluginListenerHandle } from '@capacitor/core';
-export declare type BottomSheetKeys = 'initial' | 'receive' | 'invoice' | 'transfer' | 'swap' | 'stake' | 'unstake' | 'staking-info' | 'transaction-info' | 'swap-activity' | 'backup' | 'add-account' | 'settings' | 'qr-scanner' | 'dapp-connect' | 'dapp-transaction' | 'disclaimer' | 'backup-warning';
+export declare type BottomSheetKeys = 'initial' | 'receive' | 'invoice' | 'transfer' | 'swap' | 'stake' | 'unstake' | 'staking-info' | 'vesting-info' | 'vesting-confirm' | 'transaction-info' | 'swap-activity' | 'backup' | 'add-account' | 'settings' | 'qr-scanner' | 'dapp-connect' | 'dapp-transfer' | 'disclaimer' | 'backup-warning' | 'onramp-widget';
 export interface BottomSheetPlugin {
     prepare(): Promise<void>;
     applyScrollPatch(): Promise<void>;
     clearScrollPatch(): Promise<void>;
+    disable(): Promise<void>;
+    enable(): Promise<void>;
     delegate(options: {
         key: BottomSheetKeys;
         globalJson: string;
@@ -19,16 +21,8 @@ export interface BottomSheetPlugin {
     closeSelf(options: {
         key: BottomSheetKeys;
     }): Promise<void>;
-    setSelfSize(options: {
-        size: 'half' | 'full';
-    }): Promise<void>;
-    callActionInMain(options: {
-        name: string;
-        optionsJson: string;
-    }): Promise<void>;
-    callActionInNative(options: {
-        name: string;
-        optionsJson: string;
+    toggleSelfFullSize(options: {
+        isFullSize: boolean;
     }): Promise<void>;
     openInMain(options: {
         key: BottomSheetKeys;
@@ -38,14 +32,6 @@ export interface BottomSheetPlugin {
         globalJson: string;
     }) => void): Promise<PluginListenerHandle> & PluginListenerHandle;
     addListener(eventName: 'move', handler: () => void): Promise<PluginListenerHandle> & PluginListenerHandle;
-    addListener(eventName: 'callActionInMain', handler: (options: {
-        name: string;
-        optionsJson: string;
-    }) => void): Promise<PluginListenerHandle> & PluginListenerHandle;
-    addListener(eventName: 'callActionInNative', handler: (options: {
-        name: string;
-        optionsJson: string;
-    }) => void): Promise<PluginListenerHandle> & PluginListenerHandle;
     addListener(eventName: 'openInMain', handler: (options: {
         key: BottomSheetKeys;
     }) => void): Promise<PluginListenerHandle> & PluginListenerHandle;

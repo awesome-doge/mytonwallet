@@ -1,7 +1,10 @@
+import { Cell } from '@ton/core';
+
+import type { AnyPayload } from '../blockchains/ton/types';
 import type { ApiSignedTransfer, OnApiUpdate } from '../types';
 import type { OnApiSiteUpdate } from '../types/dappUpdates';
 
-import { TON_TOKEN_SLUG } from '../../config';
+import { TONCOIN_SLUG } from '../../config';
 import { parseAccountId } from '../../util/account';
 import { logDebugError } from '../../util/logs';
 import blockchains from '../blockchains';
@@ -77,10 +80,11 @@ export async function sendTransaction(params: {
   const accountId = await getCurrentAccountIdOrFail();
 
   const {
-    value: amount, to: toAddress, data, dataType, stateInit,
+    value, to: toAddress, data, dataType, stateInit,
   } = params;
+  const amount = BigInt(value);
 
-  let processedData;
+  let processedData: AnyPayload | undefined;
   if (data) {
     switch (dataType) {
       case 'hex':
@@ -90,21 +94,25 @@ export async function sendTransaction(params: {
         processedData = base64ToBytes(data);
         break;
       case 'boc':
-        processedData = ton.oneCellFromBoc(base64ToBytes(data));
+        processedData = Cell.fromBase64(data);
         break;
       default:
         processedData = data;
     }
   }
 
-  const processedStateInit = stateInit ? ton.oneCellFromBoc(base64ToBytes(stateInit)) : undefined;
+  const processedStateInit = stateInit ? Cell.fromBase64(stateInit) : undefined;
 
   await openPopupWindow();
   await waitLogin();
 
-  const checkResult = await ton.checkTransactionDraft(
-    accountId, TON_TOKEN_SLUG, toAddress, amount, processedData, processedStateInit,
-  );
+  const checkResult = await ton.checkTransactionDraft({
+    accountId,
+    toAddress,
+    amount,
+    data: processedData,
+    stateInit: processedStateInit,
+  });
 
   if ('error' in checkResult) {
     onPopupUpdate({
@@ -135,9 +143,14 @@ export async function sendTransaction(params: {
 
   const password = await promise;
 
-  const result = await ton.submitTransfer(
-    accountId, password, TON_TOKEN_SLUG, toAddress, amount, processedData, processedStateInit,
-  );
+  const result = await ton.submitTransfer({
+    accountId,
+    password,
+    toAddress,
+    amount,
+    data: processedData,
+    stateInit: processedStateInit,
+  });
 
   if ('error' in result) {
     return false;
@@ -149,7 +162,8 @@ export async function sendTransaction(params: {
     fromAddress,
     toAddress,
     fee: checkResult.fee!,
-    slug: TON_TOKEN_SLUG,
+    slug: TONCOIN_SLUG,
+    inMsgHash: result.msgHash,
     ...(dataType === 'text' && {
       comment: data,
     }),
@@ -162,7 +176,7 @@ async function sendLedgerTransaction(
   accountId: string,
   promiseId: string,
   promise: Promise<any>,
-  fee: string,
+  fee: bigint,
   params: {
     to: string;
     value: string;
@@ -174,8 +188,9 @@ async function sendLedgerTransaction(
   const { network } = parseAccountId(accountId);
   const fromAddress = await fetchStoredAddress(accountId);
   const {
-    to: toAddress, value: amount, data, dataType, stateInit,
+    to: toAddress, value, data, dataType, stateInit,
   } = params;
+  const amount = BigInt(value);
 
   let payloadBoc: string | undefined;
 
@@ -204,7 +219,7 @@ async function sendLedgerTransaction(
     type: 'createTransaction',
     promiseId,
     toAddress,
-    amount,
+    amount: BigInt(amount),
     fee,
     ...(dataType === 'text' && {
       comment: data,
@@ -214,10 +229,12 @@ async function sendLedgerTransaction(
     parsedPayload,
   });
 
+  let msgHash: string;
+
   try {
     const [signedMessage] = await promise as ApiSignedTransfer[];
 
-    await ton.sendSignedMessage(accountId, signedMessage);
+    msgHash = await ton.sendSignedMessage(accountId, signedMessage);
   } catch (err) {
     logDebugError('sendLedgerTransaction', err);
     return false;
@@ -228,7 +245,8 @@ async function sendLedgerTransaction(
     fromAddress,
     toAddress,
     fee,
-    slug: TON_TOKEN_SLUG,
+    slug: TONCOIN_SLUG,
+    inMsgHash: msgHash,
     ...(dataType === 'text' && {
       comment: data,
     }),

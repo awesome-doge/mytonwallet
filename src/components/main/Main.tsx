@@ -5,7 +5,7 @@ import { getActions, withGlobal } from '../../global';
 
 import { ActiveTab, ContentTab } from '../../global/types';
 
-import { IS_CAPACITOR } from '../../config';
+import { IS_ANDROID_DIRECT, IS_CAPACITOR } from '../../config';
 import { selectCurrentAccount, selectCurrentAccountState } from '../../global/selectors';
 import buildClassName from '../../util/buildClassName';
 import { getStatusBarHeight } from '../../util/capacitor';
@@ -16,14 +16,19 @@ import windowSize from '../../util/windowSize';
 
 import { useOpenFromMainBottomSheet } from '../../hooks/useDelegatedBottomSheet';
 import { useDeviceScreen } from '../../hooks/useDeviceScreen';
-import useFlag from '../../hooks/useFlag';
+import useEffectOnce from '../../hooks/useEffectOnce';
 import useLastCallback from '../../hooks/useLastCallback';
+import usePreventPinchZoomGesture from '../../hooks/usePreventPinchZoomGesture';
 import useShowTransition from '../../hooks/useShowTransition';
 
+import MediaViewer from '../mediaViewer/MediaViewer';
 import ReceiveModal from '../receive/ReceiveModal';
 import StakeModal from '../staking/StakeModal';
 import StakingInfoModal from '../staking/StakingInfoModal';
-import UnstakingModal from '../staking/UnstakeModal';
+import UnstakeModal from '../staking/UnstakeModal';
+import UpdateAvailable from '../ui/UpdateAvailable';
+import VestingModal from '../vesting/VestingModal';
+import VestingPasswordModal from '../vesting/VestingPasswordModal';
 import { LandscapeActions, PortraitActions } from './sections/Actions';
 import Card from './sections/Card';
 import StickyCard from './sections/Card/StickyCard';
@@ -34,7 +39,6 @@ import styles from './Main.module.scss';
 
 interface OwnProps {
   isActive?: boolean;
-  onQrScanPress?: NoneToVoidFunction;
 }
 
 type StateProps = {
@@ -45,6 +49,8 @@ type StateProps = {
   isLedger?: boolean;
   isStakingInfoModalOpen?: boolean;
   isSwapDisabled?: boolean;
+  isOnRampDisabled?: boolean;
+  isMediaViewerOpen?: boolean;
 };
 
 const STICKY_CARD_INTERSECTION_THRESHOLD = -3.75 * REM;
@@ -56,9 +62,10 @@ function Main({
   isUnstakeRequested,
   isTestnet,
   isLedger,
-  onQrScanPress,
   isStakingInfoModalOpen,
   isSwapDisabled,
+  isOnRampDisabled,
+  isMediaViewerOpen,
 }: OwnProps & StateProps) {
   const {
     selectToken,
@@ -68,6 +75,8 @@ function Main({
     openStakingInfo,
     closeStakingInfo,
     setLandscapeActionsActiveTabIndex,
+    loadExploreSites,
+    openReceiveModal,
   } = getActions();
 
   // eslint-disable-next-line no-null/no-null
@@ -76,16 +85,18 @@ function Main({
   const portraitContainerRef = useRef<HTMLDivElement>(null);
   const [canRenderStickyCard, setCanRenderStickyCard] = useState(false);
   const [shouldRenderDarkStatusBar, setShouldRenderDarkStatusBar] = useState(false);
-  const [isReceiveModalOpened, openReceiveModal, closeReceiveModal] = useFlag();
   const safeAreaTop = IS_CAPACITOR ? getStatusBarHeight() : windowSize.get().safeAreaTop;
 
   useOpenFromMainBottomSheet('receive', openReceiveModal);
+  usePreventPinchZoomGesture(isMediaViewerOpen);
 
   const { isPortrait } = useDeviceScreen();
   const {
     shouldRender: shouldRenderStickyCard,
     transitionClassNames: stickyCardTransitionClassNames,
   } = useShowTransition(canRenderStickyCard);
+
+  useEffectOnce(loadExploreSites);
 
   useEffect(() => {
     setStatusBarStyle(shouldRenderDarkStatusBar);
@@ -100,7 +111,7 @@ function Main({
     const rootMarginTop = STICKY_CARD_INTERSECTION_THRESHOLD - safeAreaTop;
     const observer = new IntersectionObserver((entries) => {
       const { isIntersecting, boundingClientRect: { left, width } } = entries[0];
-      setCanRenderStickyCard(entries.length > 0 && !isIntersecting && left >= 0 && left < width);
+      setCanRenderStickyCard(entries.length > 0 && !isIntersecting && left < width);
     }, { rootMargin: `${rootMarginTop}px 0px 0px` });
 
     const cardTopSideObserver = new IntersectionObserver((entries) => {
@@ -169,12 +180,10 @@ function Main({
             forceCloseAccountSelector={shouldRenderStickyCard}
             onTokenCardClose={handleTokenCardClose}
             onApyClick={handleEarnClick}
-            onQrScanPress={onQrScanPress}
           />
           {shouldRenderStickyCard && (
             <StickyCard
               classNames={stickyCardTransitionClassNames}
-              onQrScanPress={onQrScanPress}
             />
           )}
           <PortraitActions
@@ -182,9 +191,9 @@ function Main({
             isTestnet={isTestnet}
             isUnstakeRequested={isUnstakeRequested}
             onEarnClick={handleEarnClick}
-            onReceiveClick={openReceiveModal}
             isLedger={isLedger}
             isSwapDisabled={isSwapDisabled}
+            isOnRampDisabled={isOnRampDisabled}
           />
         </div>
 
@@ -198,7 +207,7 @@ function Main({
       <div className={styles.landscapeContainer}>
         <div className={buildClassName(styles.sidebar, 'custom-scroll')}>
           <Warnings onOpenBackupWallet={openBackupWalletModal} />
-          <Card onTokenCardClose={handleTokenCardClose} onApyClick={handleEarnClick} onQrScanPress={onQrScanPress} />
+          <Card onTokenCardClose={handleTokenCardClose} onApyClick={handleEarnClick} />
           <LandscapeActions
             hasStaking={isStakingActive}
             isUnstakeRequested={isUnstakeRequested}
@@ -218,8 +227,12 @@ function Main({
 
       <StakeModal />
       <StakingInfoModal isOpen={isStakingInfoModalOpen} onClose={closeStakingInfo} />
-      <ReceiveModal isOpen={isReceiveModalOpened} onClose={closeReceiveModal} />
-      <UnstakingModal />
+      <ReceiveModal />
+      <UnstakeModal />
+      <MediaViewer />
+      {IS_ANDROID_DIRECT && <UpdateAvailable />}
+      <VestingModal />
+      <VestingPasswordModal />
     </>
   );
 }
@@ -230,6 +243,8 @@ export default memo(
       const accountState = selectCurrentAccountState(global);
       const account = selectCurrentAccount(global);
 
+      const { isSwapDisabled, isOnRampDisabled } = global.restrictions;
+
       return {
         isStakingActive: Boolean(accountState?.staking?.balance),
         isUnstakeRequested: accountState?.staking?.isUnstakeRequested,
@@ -237,7 +252,9 @@ export default memo(
         isTestnet: global.settings.isTestnet,
         isLedger: !!account?.ledger,
         isStakingInfoModalOpen: global.isStakingInfoModalOpen,
-        isSwapDisabled: global.restrictions.isSwapDisabled,
+        isMediaViewerOpen: Boolean(global.mediaViewer?.mediaId),
+        isSwapDisabled,
+        isOnRampDisabled,
       };
     },
     (global, _, stickToFirst) => stickToFirst(global.currentAccountId),

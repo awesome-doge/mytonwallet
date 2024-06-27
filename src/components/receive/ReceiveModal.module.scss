@@ -21,6 +21,11 @@
   text-align: center;
 }
 
+.qrCode:not(.qrCodeHidden) + .contentTitle {
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
+
 .qrCode {
   position: relative;
 
@@ -50,8 +55,6 @@
 
 .qrCodeHidden {
   opacity: 0;
-
-  transition: none;
 }
 
 .label {
@@ -81,14 +84,6 @@
   &:hover {
     background-color: var(--color-gray-button-background-hover) !important;
   }
-
-  @include respond-above(xs) {
-    background-color: var(--color-gray-button-background-desktop) !important;
-
-    &:hover {
-      background-color: var(--color-gray-button-background-desktop-hover) !important;
-    }
-  }
 }
 
 .tokenDropdown {
@@ -115,4 +110,14 @@
   &:focus {
     text-decoration: none;
   }
+}
+
+.actionButtons {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.actionButton {
+  max-width: 100% !important;
 }

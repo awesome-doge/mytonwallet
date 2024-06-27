@@ -1,24 +1,30 @@
-import React, { memo, useEffect, useState } from '../../../lib/teact/teact';
+import React, {
+  memo, type TeactNode, useEffect, useMemo, useState,
+} from '../../../lib/teact/teact';
 import { getActions, getGlobal, withGlobal } from '../../../global';
 
 import type { ApiToken, ApiTransactionActivity } from '../../../api/types';
+import type { StakingStatus } from '../../../global/types';
+import { ActiveTab } from '../../../global/types';
 
 import {
   ANIMATION_END_DELAY,
   ANIMATION_LEVEL_MIN,
   IS_CAPACITOR,
   STAKING_CYCLE_DURATION_MS,
+  TON_EXPLORER_NAME,
   TON_SYMBOL,
-  TON_TOKEN_SLUG,
-  TONSCAN_BASE_MAINNET_URL,
-  TONSCAN_BASE_TESTNET_URL,
+  TONCOIN_SLUG,
 } from '../../../config';
-import { bigStrToHuman, getIsTxIdLocal } from '../../../global/helpers';
-import { selectCurrentAccountState } from '../../../global/selectors';
+import { getIsTxIdLocal } from '../../../global/helpers';
+import { selectCurrentAccountStakingStatus, selectCurrentAccountState } from '../../../global/selectors';
+import { bigintAbs } from '../../../util/bigint';
 import buildClassName from '../../../util/buildClassName';
 import { vibrateOnSuccess } from '../../../util/capacitor';
 import { formatFullDay, formatRelativeHumanDateTime, formatTime } from '../../../util/dateFormat';
+import { toDecimal } from '../../../util/decimals';
 import resolveModalTransitionName from '../../../util/resolveModalTransitionName';
+import { getTonExplorerTransactionUrl } from '../../../util/url';
 import { callApi } from '../../../api';
 
 import { useDeviceScreen } from '../../../hooks/useDeviceScreen';
@@ -29,6 +35,7 @@ import useShowTransition from '../../../hooks/useShowTransition';
 import useSyncEffect from '../../../hooks/useSyncEffect';
 
 import TransactionAmount from '../../common/TransactionAmount';
+import NftInfo from '../../transfer/NftInfo';
 import AmountWithFeeTextField from '../../ui/AmountWithFeeTextField';
 import Button from '../../ui/Button';
 import InteractiveTextField from '../../ui/InteractiveTextField';
@@ -52,13 +59,12 @@ type StateProps = {
   endOfStakingCycle?: number;
   isUnstakeRequested?: boolean;
   isLongUnstakeRequested?: boolean;
+  stakingStatus?: StakingStatus;
 };
 const enum SLIDES {
   initial,
   password,
 }
-
-const EMPTY_HASH_VALUE = 'NOHASH';
 
 function TransactionModal({
   transaction,
@@ -69,6 +75,7 @@ function TransactionModal({
   endOfStakingCycle,
   isUnstakeRequested,
   isLongUnstakeRequested,
+  stakingStatus,
 }: StateProps) {
   const {
     startTransfer,
@@ -76,6 +83,7 @@ function TransactionModal({
     closeActivityInfo,
     setIsPinAccepted,
     clearIsPinAccepted,
+    setLandscapeActionsActiveTabIndex,
   } = getActions();
 
   const lang = useLang();
@@ -100,24 +108,28 @@ function TransactionModal({
     isIncoming,
     slug,
     timestamp,
+    nft,
   } = renderedTransaction || {};
   const [, transactionHash] = (id || '').split(':');
-  const isStaking = Boolean(transaction?.type);
+  const isStaking = renderedTransaction?.type === 'stake' || renderedTransaction?.type === 'unstake';
+  const isUnstaking = renderedTransaction?.type === 'unstake';
+  const isNftTransfer = renderedTransaction?.type === 'nftTransferred' || renderedTransaction?.type === 'nftReceived';
 
   const token = slug ? tokensBySlug?.[slug] : undefined;
-  const amountHuman = amount ? bigStrToHuman(amount, token?.decimals) : 0;
   const address = isIncoming ? fromAddress : toAddress;
   const addressName = (address && savedAddresses?.[address]) || transaction?.metadata?.name;
   const isScam = Boolean(transaction?.metadata?.isScam);
 
-  const [isLoading, setIsLoading] = useState(false);
   const [decryptedComment, setDecryptedComment] = useState<string>();
   const [passwordError, setPasswordError] = useState<string>();
 
-  const tonscanBaseUrl = isTestnet ? TONSCAN_BASE_TESTNET_URL : TONSCAN_BASE_MAINNET_URL;
-  const tonscanTransactionUrl = transactionHash && transactionHash !== EMPTY_HASH_VALUE
-    ? `${tonscanBaseUrl}tx/${transactionHash}`
-    : undefined;
+  const transactionUrl = getTonExplorerTransactionUrl(transactionHash, isTestnet);
+  const tonExplorerTitle = useMemo(() => {
+    return (lang('View Transaction on %ton_explorer_name%', {
+      ton_explorer_name: TON_EXPLORER_NAME,
+    }) as TeactNode[]
+    ).join('');
+  }, [lang]);
 
   const [withUnstakeTimer, setWithUnstakeTimer] = useState(false);
 
@@ -148,6 +160,10 @@ function TransactionModal({
     }
   }, [endOfStakingCycle]);
 
+  const clearPasswordError = useLastCallback(() => {
+    setPasswordError(undefined);
+  });
+
   const openPasswordSlide = useLastCallback(() => {
     setCurrentSlide(SLIDES.password);
     setNextKey(undefined);
@@ -156,26 +172,50 @@ function TransactionModal({
   const closePasswordSlide = useLastCallback(() => {
     setCurrentSlide(SLIDES.initial);
     setNextKey(SLIDES.password);
+    clearPasswordError();
+  });
+
+  const openHiddenComment = useLastCallback(() => {
+    if (!encryptedComment) {
+      return;
+    }
+
+    openPasswordSlide();
   });
 
   const handleSendClick = useLastCallback(() => {
     closeActivityInfo({ id: id! });
     startTransfer({
       isPortrait,
-      tokenSlug: slug || TON_TOKEN_SLUG,
+      tokenSlug: slug || TONCOIN_SLUG,
       toAddress: address,
-      amount: Math.abs(amountHuman),
+      amount: bigintAbs(amount!),
       comment: !isIncoming ? comment : undefined,
     });
   });
 
   const handleStartStakingClick = useLastCallback(() => {
     closeActivityInfo({ id: id! });
+
+    if (!isPortrait) {
+      setLandscapeActionsActiveTabIndex({ index: ActiveTab.Stake });
+      return;
+    }
+
     startStaking();
   });
 
+  const handleUnstakeMoreClick = useLastCallback(() => {
+    closeActivityInfo({ id: id! });
+
+    if (!isPortrait) {
+      setLandscapeActionsActiveTabIndex({ index: ActiveTab.Stake });
+    }
+
+    startStaking({ isUnstaking: true });
+  });
+
   const handlePasswordSubmit = useLastCallback(async (password: string) => {
-    setIsLoading(true);
     const result = await callApi(
       'decryptComment',
       getGlobal().currentAccountId!,
@@ -183,7 +223,6 @@ function TransactionModal({
       fromAddress!,
       password,
     );
-    setIsLoading(false);
 
     if (!result) {
       setPasswordError('Wrong password, please try again.');
@@ -206,18 +245,17 @@ function TransactionModal({
     }
   });
 
-  const clearPasswordError = useLastCallback(() => {
-    setPasswordError(undefined);
-  });
+  function getTitle(isLocal: boolean) {
+    if (isUnstaking) {
+      return isLocal ? 'Unstaking' : 'Unstaked';
+    }
+    if (isIncoming) return 'Received';
+
+    return isLocal ? 'Sending' : 'Sent';
+  }
 
   function renderHeader() {
-    const isLocal = id && getIsTxIdLocal(id);
-
-    const title = isIncoming
-      ? lang('Received')
-      : isLocal
-        ? lang('Sending')
-        : lang('Sent');
+    const isLocal = Boolean(id && getIsTxIdLocal(id));
 
     return (
       <div
@@ -228,15 +266,15 @@ function TransactionModal({
       >
         <div className={modalStyles.title}>
           <div className={styles.headerTitle}>
-            {title}
+            {lang(getTitle(isLocal))}
             {isLocal && (
               <i
-                className={buildClassName(styles.clockIcon, 'icon-clock')}
+                className="icon-clock"
                 title={lang('Transaction in progress')}
                 aria-hidden
               />
             )}
-            {isScam && <img src={scamImg} alt={lang('Scam')} className={styles.scamImage} />}
+            {isScam && isIncoming && <img src={scamImg} alt={lang('Scam')} className={styles.scamImage} />}
           </div>
           {!!timestamp && (
             <div className={styles.headerDate}>
@@ -264,14 +302,14 @@ function TransactionModal({
     return (
       <AmountWithFeeTextField
         label={lang('Fee')}
-        amount={bigStrToHuman(fee)}
+        amount={toDecimal(fee)}
         currency={TON_SYMBOL}
       />
     );
   }
 
   function renderComment() {
-    if ((!comment && !encryptedComment) || transaction?.type) {
+    if ((!comment && !encryptedComment) || (transaction?.type && !isNftTransfer)) {
       return undefined;
     }
 
@@ -288,7 +326,7 @@ function TransactionModal({
           text={encryptedComment ? decryptedComment : comment}
           spoiler={spoiler}
           spoilerRevealText={encryptedComment ? lang('Decrypt') : lang('Display')}
-          spoilerCallback={openPasswordSlide}
+          spoilerCallback={openHiddenComment}
           copyNotification={lang('Comment was copied!')}
           className={styles.copyButtonWrapper}
           textClassName={styles.comment}
@@ -301,9 +339,15 @@ function TransactionModal({
     return (
       <div className={buildClassName(styles.unstakeTime, unstakeTimerClassNames)}>
         <i className={buildClassName(styles.unstakeTimeIcon, 'icon-clock')} aria-hidden />
-        {lang('$unstaking_when_receive', {
-          time: <strong>{formatRelativeHumanDateTime(lang.code, unstakeDate)}</strong>,
-        })}
+        <div>
+          {lang('$unstaking_when_receive', {
+            time: (
+              <strong>
+                {formatRelativeHumanDateTime(lang.code, unstakeDate)}
+              </strong>
+            ),
+          })}
+        </div>
       </div>
     );
   }
@@ -311,38 +355,59 @@ function TransactionModal({
   function renderTransactionContent() {
     return (
       <>
-        <TransactionAmount
-          isIncoming={isIncoming}
-          isScam={isScam}
-          amount={amountHuman}
-          tokenSymbol={token?.symbol}
-        />
+        {isNftTransfer ? (
+          <NftInfo nft={nft} withTonExplorer />
+        ) : (
+          <TransactionAmount
+            isIncoming={isIncoming}
+            isScam={isScam}
+            amount={amount ?? 0n}
+            decimals={token?.decimals}
+            tokenSymbol={token?.symbol}
+            status={isUnstaking && !shouldRenderUnstakeTimer ? lang('Successfully') : undefined}
+          />
+        )}
 
-        <div className={transferStyles.label}>{lang(isIncoming ? 'Sender' : 'Recipient')}</div>
-        <InteractiveTextField
-          addressName={addressName}
-          address={address!}
-          copyNotification={lang('Address was copied!')}
-          className={styles.copyButtonWrapper}
-          textClassName={isScam ? styles.scamAddress : undefined}
-        />
+        {!isUnstaking && (
+          <>
+            <div className={transferStyles.label}>{lang(isIncoming ? 'Sender' : 'Recipient')}</div>
+            <InteractiveTextField
+              addressName={addressName}
+              address={address!}
+              isScam={isScam && !isIncoming}
+              copyNotification={lang('Address was copied!')}
+              className={styles.copyButtonWrapper}
+              textClassName={isScam && isIncoming ? styles.scamAddress : undefined}
+            />
+          </>
+        )}
 
         {renderFee()}
         {renderComment()}
-        {isStaking && isIncoming && !shouldRenderUnstakeTimer && (
-          <div className={styles.unstakeNotice}>{lang('Unstaked successfully')}</div>
-        )}
         {shouldRenderUnstakeTimer && renderUnstakeTimer()}
 
         <div className={styles.footer}>
-          {!isStaking && (
+          {!isStaking && !isIncoming && !isNftTransfer && (
             <Button onClick={handleSendClick} className={styles.button}>
-              {lang(isIncoming ? 'Send Back' : 'Repeat')}
+              {lang('Repeat')}
             </Button>
           )}
           {isStaking && (
-            <Button onClick={handleStartStakingClick} className={styles.button}>
+            <Button
+              onClick={handleStartStakingClick}
+              className={buildClassName(styles.button, isUnstaking && stakingStatus === 'active' && styles.buttonWide)}
+            >
               {lang('Stake Again')}
+            </Button>
+          )}
+          {isUnstaking && stakingStatus === 'active' && (
+            <Button onClick={handleUnstakeMoreClick} className={buildClassName(styles.button, styles.buttonWide)}>
+              {lang('Unstake More')}
+            </Button>
+          )}
+          {isNftTransfer && (
+            <Button onClick={handleClose} className={styles.button}>
+              {lang('Close')}
             </Button>
           )}
         </div>
@@ -358,15 +423,15 @@ function TransactionModal({
           <>
             {renderHeader()}
             <div className={modalStyles.transitionContent}>
-              {tonscanTransactionUrl && (
+              {transactionUrl && (
                 <a
-                  href={tonscanTransactionUrl}
+                  href={transactionUrl}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className={styles.tonscan}
-                  title={lang('View Transaction on TON Explorer')}
+                  className={styles.tonExplorer}
+                  title={tonExplorerTitle}
                 >
-                  <i className="icon-tonscan" aria-hidden />
+                  <i className="icon-tonexplorer" aria-hidden />
                 </a>
               )}
               {renderTransactionContent()}
@@ -381,12 +446,11 @@ function TransactionModal({
             {!IS_CAPACITOR && <ModalHeader title={lang('Enter Password')} onClose={handleClose} />}
             <PasswordForm
               isActive={isActive}
-              isLoading={isLoading}
               submitLabel={lang('Send')}
               placeholder={lang('Enter your password')}
               error={passwordError}
               withCloseButton={IS_CAPACITOR}
-              containerClassName={styles.passwordFormContent}
+              containerClassName={IS_CAPACITOR ? styles.passwordFormContent : styles.passwordFormContentInModal}
               onSubmit={handlePasswordSubmit}
               onCancel={closePasswordSlide}
               onUpdate={clearPasswordError}
@@ -402,8 +466,9 @@ function TransactionModal({
       hasCloseButton
       nativeBottomSheetKey="transaction-info"
       forceFullNative={currentSlide === SLIDES.password}
-      dialogClassName={styles.modalDialog}
+      dialogClassName={buildClassName(styles.modalDialog, isUnstaking && styles.unstakeModal)}
       onClose={handleClose}
+      onCloseAnimationEnd={closePasswordSlide}
     >
       <Transition
         name={resolveModalTransitionName()}
@@ -429,6 +494,7 @@ export default memo(
       end: endOfStakingCycle,
     } = accountState?.staking || {};
     const savedAddresses = accountState?.savedAddresses;
+    const stakingStatus = selectCurrentAccountStakingStatus(global);
 
     return {
       transaction: activity?.kind === 'transaction' ? activity : undefined,
@@ -439,6 +505,7 @@ export default memo(
       endOfStakingCycle,
       isUnstakeRequested: accountState?.staking?.isUnstakeRequested,
       isLongUnstakeRequested: accountState?.isLongUnstakeRequested,
+      stakingStatus,
     };
   })(TransactionModal),
 );

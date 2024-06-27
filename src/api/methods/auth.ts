@@ -1,16 +1,26 @@
 import type { LedgerWalletInfo } from '../../util/ledger/types';
-import type { ApiAccount, ApiNetwork, ApiTxIdBySlug } from '../types';
+import type { TonWallet } from '../blockchains/ton/util/tonCore';
+import type {
+  ApiAccount, ApiNetwork, ApiTxIdBySlug, ApiWalletVersion,
+} from '../types';
+import { ApiCommonError } from '../types';
 
+import { DEFAULT_WALLET_VERSION } from '../../config';
+import { parseAccountId } from '../../util/account';
+import isMnemonicPrivateKey from '../../util/isMnemonicPrivateKey';
 import blockchains from '../blockchains';
-import { toBase64Address } from '../blockchains/ton/util/tonweb';
+import { privateKeyHexToKeyPair } from '../blockchains/ton/auth';
+import { toBase64Address } from '../blockchains/ton/util/tonCore';
 import {
+  fetchStoredAccount,
   getAccountIds,
+  getAccountValue,
   getNewAccountId,
   removeAccountValue,
   removeNetworkAccountsValue,
   setAccountValue,
 } from '../common/accounts';
-import { bytesToHex } from '../common/utils';
+import { bytesToHex, hexToBytes } from '../common/utils';
 import { apiDb } from '../db';
 import { getEnvironment } from '../environment';
 import { handleServerError } from '../errors';
@@ -24,8 +34,7 @@ export function generateMnemonic() {
 
 export async function createWallet(network: ApiNetwork, mnemonic: string[], password: string) {
   const {
-    mnemonicToSeed,
-    seedToKeyPair,
+    mnemonicToKeyPair,
     publicKeyToAddress,
   } = blockchains.ton;
 
@@ -33,15 +42,21 @@ export async function createWallet(network: ApiNetwork, mnemonic: string[], pass
     throw new Error('Invalid mnemonic');
   }
 
-  const seedBase64 = await mnemonicToSeed(mnemonic);
-  const { publicKey } = seedToKeyPair(seedBase64);
-  const address = await publicKeyToAddress(network, publicKey);
+  const { publicKey } = await mnemonicToKeyPair(mnemonic);
+  const version = DEFAULT_WALLET_VERSION;
+  const address = publicKeyToAddress(network, publicKey, version);
 
   const accountId = await getNewAccountId(network);
-  await storeAccount(accountId, mnemonic, password, {
+  const result = await storeAccount(accountId, mnemonic, password, {
     address,
     publicKey: bytesToHex(publicKey),
+    version,
   });
+
+  if ('error' in result) {
+    return result as { error: string };
+  }
+
   void activateAccount(accountId);
 
   return {
@@ -56,32 +71,39 @@ export function validateMnemonic(mnemonic: string[]) {
 
 export async function importMnemonic(network: ApiNetwork, mnemonic: string[], password: string) {
   const {
-    mnemonicToSeed,
-    seedToKeyPair,
+    mnemonicToKeyPair,
     pickBestWallet,
   } = blockchains.ton;
 
-  if (!await validateMnemonic(mnemonic)) {
+  const isPrivateKey = isMnemonicPrivateKey(mnemonic);
+
+  if (!isMnemonicPrivateKey(mnemonic) && !await validateMnemonic(mnemonic)) {
     throw new Error('Invalid mnemonic');
   }
 
-  const seedBase64 = await mnemonicToSeed(mnemonic);
-  const { publicKey } = seedToKeyPair(seedBase64);
-  let wallet: Awaited<ReturnType<typeof pickBestWallet>>;
+  const { publicKey } = isPrivateKey ? privateKeyHexToKeyPair(mnemonic[0]) : await mnemonicToKeyPair(mnemonic);
+  let wallet: TonWallet;
+  let version: ApiWalletVersion;
 
   try {
-    wallet = await pickBestWallet(network, publicKey);
+    ({ wallet, version } = await pickBestWallet(network, publicKey));
   } catch (err: any) {
     return handleServerError(err);
   }
 
-  const address = toBase64Address(await wallet.getAddress(), false);
+  const address = toBase64Address(wallet.address, false, network);
 
   const accountId: string = await getNewAccountId(network);
-  await storeAccount(accountId, mnemonic, password, {
+  const result = await storeAccount(accountId, mnemonic, password, {
     publicKey: bytesToHex(publicKey),
     address,
+    version,
   });
+
+  if ('error' in result) {
+    return result as { error: string };
+  }
+
   void activateAccount(accountId);
 
   return {
@@ -112,6 +134,35 @@ export async function importLedgerWallet(network: ApiNetwork, walletInfo: Ledger
   return { accountId, address, walletInfo };
 }
 
+export async function importNewWalletVersion(accountId: string, version: ApiWalletVersion) {
+  const { publicKeyToAddress } = blockchains.ton;
+  const { network } = parseAccountId(accountId);
+
+  const account = await fetchStoredAccount(accountId);
+  const mnemonicEncrypted = await getAccountValue(accountId, 'mnemonicsEncrypted');
+  const publicKey = hexToBytes(account.publicKey);
+
+  const newAddress = publicKeyToAddress(network, publicKey, version);
+  const newAccountId = await getNewAccountId(network);
+  const newAccount: ApiAccount = {
+    address: newAddress,
+    publicKey: account.publicKey,
+    version,
+  };
+
+  await Promise.all([
+    setAccountValue(newAccountId, 'mnemonicsEncrypted', mnemonicEncrypted),
+    setAccountValue(newAccountId, 'accounts', newAccount),
+  ]);
+
+  void activateAccount(newAccountId);
+
+  return {
+    accountId: newAccountId,
+    address: newAddress,
+  };
+}
+
 function storeHardwareAccount(accountId: string, account?: ApiAccount) {
   return setAccountValue(accountId, 'accounts', account);
 }
@@ -119,10 +170,20 @@ function storeHardwareAccount(accountId: string, account?: ApiAccount) {
 async function storeAccount(accountId: string, mnemonic: string[], password: string, account: ApiAccount) {
   const mnemonicEncrypted = await blockchains.ton.encryptMnemonic(mnemonic, password);
 
+  // This is a defensive approach against potential corrupted encryption reported by some users
+  const decryptedMnemonic = await blockchains.ton.decryptMnemonic(mnemonicEncrypted, password)
+    .catch(() => undefined);
+
+  if (!password || !decryptedMnemonic) {
+    return { error: ApiCommonError.DebugError };
+  }
+
   await Promise.all([
     setAccountValue(accountId, 'mnemonicsEncrypted', mnemonicEncrypted),
     setAccountValue(accountId, 'accounts', account),
   ]);
+
+  return {};
 }
 
 export async function removeNetworkAccounts(network: ApiNetwork) {
@@ -162,7 +223,6 @@ export async function removeAccount(accountId: string, nextAccountId: string, ne
 export async function changePassword(oldPassword: string, password: string) {
   for (const accountId of await getAccountIds()) {
     const mnemonic = await blockchains.ton.fetchMnemonic(accountId, oldPassword);
-
     if (!mnemonic) {
       throw new Error('Incorrect password');
     }

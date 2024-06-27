@@ -8,19 +8,16 @@ import type {
 } from '@tonconnect/protocol';
 import nacl, { randomBytes } from 'tweetnacl';
 
-import type { ApiDappRequest, ApiSseOptions } from '../types';
+import type { ApiDappRequest, ApiSseOptions, OnApiUpdate } from '../types';
 
 import { parseAccountId } from '../../util/account';
+import { handleFetchErrors } from '../../util/fetch';
 import { extractKey } from '../../util/iteratees';
 import { logDebug, logDebugError } from '../../util/logs';
 import safeExec from '../../util/safeExec';
 import { getCurrentNetwork, waitLogin } from '../common/accounts';
-import { bytesToHex, handleFetchErrors } from '../common/utils';
-import {
-  getDappsState,
-  getSseLastEventId,
-  setSseLastEventId,
-} from '../methods/dapps';
+import { bytesToHex } from '../common/utils';
+import { getDappsState, getSseLastEventId, setSseLastEventId } from '../methods/dapps';
 import * as tonConnect from './index';
 
 type SseDapp = {
@@ -33,23 +30,48 @@ type ReturnStrategy = 'back' | 'none' | string;
 const BRIDGE_URL = 'https://tonconnectbridge.mytonwallet.org/bridge';
 const TTL_SEC = 300;
 const NONCE_SIZE = 24;
+const MAX_CONFIRM_DURATION = 60 * 1000;
 
 let sseEventSource: EventSource | undefined;
 let sseDapps: SseDapp[] = [];
+let delayedReturnParams: {
+  validUntil: number;
+  url: string;
+  isFromInAppBrowser?: boolean;
+} | undefined;
 
-export async function startSseConnection(url: string, deviceInfo: DeviceInfo): Promise<ReturnStrategy | undefined> {
-  const params = new URL(url).searchParams;
+let onUpdate: OnApiUpdate;
 
-  const ret = params.get('ret') as ReturnStrategy | null;
+export function initSse(_onUpdate: OnApiUpdate) {
+  onUpdate = _onUpdate;
+}
 
-  if (!ret || !params.get('r')) {
-    return ret ?? undefined;
-  }
+export async function startSseConnection({ url, deviceInfo, isFromInAppBrowser }: {
+  url: string;
+  deviceInfo: DeviceInfo;
+  isFromInAppBrowser?: boolean;
+}): Promise<ReturnStrategy | undefined> {
+  const { searchParams: params, origin } = new URL(url);
 
+  const ret: ReturnStrategy = params.get('ret') || 'back';
   const version = Number(params.get('v') as string);
   const appClientId = params.get('id') as string;
-  const connectRequest = JSON.parse(params.get('r') as string) as ConnectRequest;
-  const { origin } = await tonConnect.fetchDappMetadata(connectRequest.manifestUrl);
+  // `back` strategy cannot be implemented
+  const shouldOpenUrl = ret !== 'back' && ret !== 'none';
+  const r = params.get('r');
+
+  if (!r) {
+    if (shouldOpenUrl) {
+      delayedReturnParams = {
+        validUntil: Date.now() + MAX_CONFIRM_DURATION,
+        url: ret,
+        isFromInAppBrowser,
+      };
+    }
+    return undefined;
+  }
+
+  const connectRequest: ConnectRequest | null = safeExec(() => JSON.parse(r)) || JSON.parse(decodeURIComponent(r));
 
   logDebug('SSE Start connection:', {
     version, appClientId, connectRequest, ret, origin,
@@ -61,7 +83,6 @@ export async function startSseConnection(url: string, deviceInfo: DeviceInfo): P
 
   const lastOutputId = 0;
   const request: ApiDappRequest = {
-    origin,
     sseOptions: {
       clientId,
       appClientId,
@@ -72,6 +93,15 @@ export async function startSseConnection(url: string, deviceInfo: DeviceInfo): P
 
   await waitLogin();
 
+  if (!connectRequest) {
+    onUpdate({
+      type: 'showError',
+      error: 'Invalid TON Connect link',
+    });
+
+    return undefined;
+  }
+
   const result = await tonConnect.connect(request, connectRequest, lastOutputId) as ConnectEvent;
   if (result.event === 'connect') {
     result.payload.device = deviceInfo;
@@ -81,6 +111,10 @@ export async function startSseConnection(url: string, deviceInfo: DeviceInfo): P
 
   if (result.event !== 'connect_error') {
     await resetupSseConnection();
+  }
+
+  if (!shouldOpenUrl) {
+    return undefined;
   }
 
   return ret;
@@ -140,18 +174,32 @@ export async function resetupSseConnection() {
     }
 
     const {
-      accountId, clientId, appClientId, secretKey, origin,
+      accountId, clientId, appClientId, secretKey, origin, lastOutputId,
     } = sseDapp;
     const message = decryptMessage(encryptedMessage, appClientId, secretKey) as AppRequest<keyof RpcRequests>;
 
     logDebug('SSE Event:', message);
 
     await setSseLastEventId(event.lastEventId);
+    const sseOptions = {
+      clientId,
+      appClientId,
+      secretKey,
+      lastOutputId,
+    };
 
     // @ts-ignore
-    const result = await tonConnect[message.method]({ origin, accountId }, message);
+    const result = await tonConnect[message.method]({ origin, accountId, sseOptions }, message);
 
     await sendMessage(result, secretKey, clientId, appClientId);
+
+    if (delayedReturnParams) {
+      const { validUntil, url, isFromInAppBrowser } = delayedReturnParams;
+      if (validUntil > Date.now()) {
+        onUpdate({ type: 'openUrl', url, isExternal: !isFromInAppBrowser });
+      }
+      delayedReturnParams = undefined;
+    }
   };
 }
 
@@ -189,7 +237,7 @@ async function sendRawMessage(body: string, clientId: string, toId: string, topi
   }
 
   const response = await fetch(url, { method: 'POST', body });
-  handleFetchErrors(response);
+  await handleFetchErrors(response);
 }
 
 function closeEventSource() {

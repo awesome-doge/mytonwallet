@@ -32,7 +32,7 @@ interface StateProps {
   amountOutMin?: string;
 }
 
-const SLIPPAGE_VALUES = [0.1, 0.5, 1, 5];
+const SLIPPAGE_VALUES = [0.5, 1, 2, 5, 10];
 const MAX_SLIPPAGE_VALUE = 50;
 
 export const MAX_PRICE_IMPACT_VALUE = 5;
@@ -64,6 +64,11 @@ function SwapSettingsModal({
 
   const resetModal = useLastCallback(() => {
     setCurrentSlippage(slippage);
+  });
+
+  const handleInputChange = useLastCallback((stringValue?: string) => {
+    const value = stringValue ? Number(stringValue) : undefined;
+    setCurrentSlippage(value);
   });
 
   function renderSlippageValues() {
@@ -140,11 +145,11 @@ function SwapSettingsModal({
         <RichNumberInput
           labelText={renderSlippageLabel()}
           labelClassName={styles.slippageLabel}
-          value={currentSlippage}
+          value={currentSlippage?.toString()}
           hasError={hasError}
           decimals={2}
           suffix={isSlippageFocused ? '' : '%'}
-          onChange={setCurrentSlippage}
+          onChange={handleInputChange}
           onFocus={markSlippageFocused}
           onBlur={unmarkSlippageFocused}
         />
@@ -156,7 +161,7 @@ function SwapSettingsModal({
             {lang('Blockchain Fee')}
           </span>
           <span className={styles.advancedValue}>
-            ≈ {formatCurrency(fee, TON_SYMBOL)}
+            ≈ {formatCurrency(fee, TON_SYMBOL, undefined, true)}
           </span>
         </div>
         <div className={styles.advancedRow}>

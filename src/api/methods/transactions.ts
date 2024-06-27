@@ -1,3 +1,4 @@
+import type { ApiSubmitTransferResult, ApiSubmitTransferWithDieselResult } from '../blockchains/ton/types';
 import type {
   ApiLocalTransactionParams,
   ApiSignedTransfer,
@@ -6,15 +7,15 @@ import type {
   OnApiUpdate,
 } from '../types';
 
+import { TONCOIN_SLUG } from '../../config';
 import { parseAccountId } from '../../util/account';
 import { logDebugError } from '../../util/logs';
 import blockchains from '../blockchains';
 import { fetchStoredAddress } from '../common/accounts';
-import {
-  buildLocalTransaction, resolveBlockchainKey,
-} from '../common/helpers';
+import { buildLocalTransaction, resolveBlockchainKey } from '../common/helpers';
 import { handleServerError } from '../errors';
 import { swapReplaceTransactions } from './swap';
+import { buildTokenSlug } from './tokens';
 
 let onUpdate: OnApiUpdate;
 
@@ -23,10 +24,13 @@ export function initTransactions(_onUpdate: OnApiUpdate) {
 }
 
 export async function fetchTokenActivitySlice(accountId: string, slug: string, fromTxId?: string, limit?: number) {
-  const blockchain = blockchains[resolveBlockchainKey(accountId)!];
+  const { network, blockchain } = parseAccountId(accountId);
+  const activeBlockchain = blockchains[blockchain];
   try {
-    const transactions = await blockchain.getTokenTransactionSlice(accountId, slug, fromTxId, undefined, limit);
-    return await swapReplaceTransactions(accountId, transactions, slug);
+    const transactions = await activeBlockchain.getTokenTransactionSlice(accountId, slug, fromTxId, undefined, limit);
+    const activities = await swapReplaceTransactions(accountId, transactions, network, slug);
+    await activeBlockchain.fixTokenActivitiesAddressForm(network, activities);
+    return activities;
   } catch (err) {
     logDebugError('fetchTokenActivitySlice', err);
     return handleServerError(err);
@@ -34,55 +38,89 @@ export async function fetchTokenActivitySlice(accountId: string, slug: string, f
 }
 
 export async function fetchAllActivitySlice(accountId: string, lastTxIds: ApiTxIdBySlug, limit: number) {
-  const blockchain = blockchains[resolveBlockchainKey(accountId)!];
+  const { network, blockchain } = parseAccountId(accountId);
+  const activeBlockchain = blockchains[blockchain];
   try {
-    const transactions = await blockchain.getMergedTransactionSlice(accountId, lastTxIds, limit);
-    return await swapReplaceTransactions(accountId, transactions);
+    const transactions = await activeBlockchain.getMergedTransactionSlice(accountId, lastTxIds, limit);
+    const activities = await swapReplaceTransactions(accountId, transactions, network);
+    await activeBlockchain.fixTokenActivitiesAddressForm(network, activities);
+    return activities;
   } catch (err) {
     logDebugError('fetchAllActivitySlice', err);
     return handleServerError(err);
   }
 }
 
-export function checkTransactionDraft(
-  accountId: string, slug: string, toAddress: string, amount: string, comment?: string, shouldEncrypt?: boolean,
-) {
-  const blockchain = blockchains[resolveBlockchainKey(accountId)!];
+export function checkTransactionDraft(options: {
+  accountId: string;
+  tokenAddress?: string;
+  toAddress: string;
+  amount: bigint;
+  data?: string;
+  shouldEncrypt?: boolean;
+  isBase64Data?: boolean;
+}) {
+  const blockchain = blockchains[resolveBlockchainKey(options.accountId)!];
 
-  return blockchain.checkTransactionDraft(
-    accountId, slug, toAddress, amount, comment, undefined, shouldEncrypt,
-  );
+  return blockchain.checkTransactionDraft(options);
 }
 
 export async function submitTransfer(options: ApiSubmitTransferOptions, shouldCreateLocalTransaction = true) {
   const {
-    accountId, password, slug, toAddress, amount, comment, fee, shouldEncrypt,
+    accountId, password, toAddress, amount, tokenAddress, comment, fee, shouldEncrypt, isBase64Data,
+    withDiesel, dieselAmount,
   } = options;
 
   const blockchain = blockchains[resolveBlockchainKey(accountId)!];
   const fromAddress = await fetchStoredAddress(accountId);
-  const result = await blockchain.submitTransfer(
-    accountId, password, slug, toAddress, amount, comment, undefined, shouldEncrypt,
-  );
+
+  let result: ApiSubmitTransferResult | ApiSubmitTransferWithDieselResult;
+
+  if (withDiesel) {
+    result = await blockchain.submitTransferWithDiesel({
+      accountId,
+      password,
+      toAddress,
+      amount,
+      tokenAddress: tokenAddress!,
+      data: comment,
+      shouldEncrypt,
+      dieselAmount: dieselAmount!,
+    });
+  } else {
+    result = await blockchain.submitTransfer({
+      accountId,
+      password,
+      toAddress,
+      amount,
+      tokenAddress,
+      data: comment,
+      shouldEncrypt,
+      isBase64Data,
+    });
+  }
 
   if ('error' in result) {
     return result;
   }
 
-  const { encryptedComment } = result;
+  const { encryptedComment, msgHash } = result;
 
   if (!shouldCreateLocalTransaction) {
     return result;
   }
 
+  const slug = tokenAddress ? buildTokenSlug(tokenAddress) : TONCOIN_SLUG;
+
   const localTransaction = createLocalTransaction(accountId, {
     amount,
     fromAddress,
-    toAddress: result.normalizedAddress,
+    toAddress,
     comment: shouldEncrypt ? undefined : comment,
     encryptedComment,
-    fee: fee || '0',
+    fee: fee || 0n,
     slug,
+    inMsgHash: msgHash,
   });
 
   return {
@@ -97,15 +135,18 @@ export async function waitLastTransfer(accountId: string) {
   const { network } = parseAccountId(accountId);
   const address = await fetchStoredAddress(accountId);
 
-  return blockchain.waitLastTransfer(network, address);
+  return blockchain.waitPendingTransfer(network, address);
 }
 
 export async function sendSignedTransferMessage(accountId: string, message: ApiSignedTransfer) {
   const blockchain = blockchains[resolveBlockchainKey(accountId)!];
 
-  await blockchain.sendSignedMessage(accountId, message);
+  const msgHash = await blockchain.sendSignedMessage(accountId, message);
 
-  const localTransaction = createLocalTransaction(accountId, message.params);
+  const localTransaction = createLocalTransaction(accountId, {
+    ...message.params,
+    inMsgHash: msgHash,
+  });
 
   return localTransaction.txId;
 }
@@ -116,7 +157,10 @@ export async function sendSignedTransferMessages(accountId: string, messages: Ap
   const result = await blockchain.sendSignedMessages(accountId, messages);
 
   for (let i = 0; i < result.successNumber; i++) {
-    createLocalTransaction(accountId, messages[i].params);
+    createLocalTransaction(accountId, {
+      ...messages[i].params,
+      inMsgHash: result.msgHashes[i],
+    });
   }
 
   return result;
@@ -129,12 +173,12 @@ export function decryptComment(accountId: string, encryptedComment: string, from
 }
 
 export function createLocalTransaction(accountId: string, params: ApiLocalTransactionParams) {
-  const blockchainKey = parseAccountId(accountId).blockchain;
+  const { blockchain: blockchainKey, network } = parseAccountId(accountId);
   const blockchain = blockchains[blockchainKey];
 
   const { toAddress } = params;
 
-  const normalizedAddress = blockchain.normalizeAddress(toAddress);
+  const normalizedAddress = blockchain.normalizeAddress(toAddress, network);
 
   const localTransaction = buildLocalTransaction(params, normalizedAddress);
 
@@ -145,4 +189,10 @@ export function createLocalTransaction(accountId: string, params: ApiLocalTransa
   });
 
   return localTransaction;
+}
+
+export function fetchDieselState(accountId: string, tokenAddress: string) {
+  const blockchain = blockchains.ton;
+
+  return blockchain.fetchEstimateDiesel(accountId, tokenAddress);
 }

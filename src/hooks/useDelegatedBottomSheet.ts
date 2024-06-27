@@ -5,10 +5,11 @@ import type { BottomSheetKeys } from 'native-bottom-sheet';
 import { BottomSheet } from 'native-bottom-sheet';
 import { useEffect, useLayoutEffect, useState } from '../lib/teact/teact';
 import { forceOnHeavyAnimationOnce } from '../lib/teact/teactn';
-import { getActions, setGlobal } from '../global';
+import { setGlobal } from '../global';
 
-import type { ActionPayloads, GlobalState } from '../global/types';
+import type { GlobalState } from '../global/types';
 
+import { bigintReviver } from '../util/bigint';
 import cssColorToHex from '../util/cssColorToHex';
 import { setStatusBarStyle } from '../util/switchTheme';
 import { IS_DELEGATED_BOTTOM_SHEET } from '../util/windowEnvironment';
@@ -16,6 +17,7 @@ import { useDeviceScreen } from './useDeviceScreen';
 import useEffectWithPrevDeps from './useEffectWithPrevDeps';
 
 const BLUR_TIMEOUT = 50;
+const COMPACT_MODAL_CSS_SELECTOR = '.is-compact-modal';
 
 const controlledByMain = new Map<BottomSheetKeys, NoneToVoidFunction>();
 
@@ -38,7 +40,7 @@ if (IS_DELEGATED_BOTTOM_SHEET) {
     controlledByMain.get(key)?.();
 
     setGlobal(
-      JSON.parse(globalJson) as GlobalState,
+      JSON.parse(globalJson, bigintReviver) as GlobalState,
       { forceOutdated: true, forceSyncOnIOs: true },
     );
   });
@@ -46,14 +48,6 @@ if (IS_DELEGATED_BOTTOM_SHEET) {
   BottomSheet.addListener('move', () => {
     window.dispatchEvent(new Event('viewportmove'));
   });
-
-  BottomSheet.addListener(
-    'callActionInNative',
-    <K extends keyof ActionPayloads>({ name, optionsJson }: { name: string; optionsJson: string }) => {
-      const action = getActions()[name as K];
-      action((JSON.parse(optionsJson) || undefined) as ActionPayloads[K]);
-    },
-  );
 }
 
 export function useDelegatedBottomSheet(
@@ -82,7 +76,7 @@ export function useDelegatedBottomSheet(
       BottomSheet.closeSelf({ key });
       setStatusBarStyle();
     }
-  }, [dialogRef, isOpen, key, onClose]);
+  }, [isOpen, dialogRef, key, onClose]);
 
   const isDelegatedAndOpen = IS_DELEGATED_BOTTOM_SHEET && key && isOpen;
 
@@ -105,7 +99,7 @@ export function useDelegatedBottomSheet(
     // Skip initial opening
     if (forceFullNative !== undefined && prevForceFullNative === undefined) return;
 
-    BottomSheet.setSelfSize({ size: forceFullNative ? 'full' : 'half' });
+    BottomSheet.toggleSelfFullSize({ isFullSize: forceFullNative });
   }, [forceFullNative, isDelegatedAndOpen]);
 
   useLayoutEffect(() => {
@@ -127,17 +121,17 @@ export function useDelegatedBottomSheet(
 
       preventScrollOnFocus(dialogEl);
 
-      BottomSheet.setSelfSize({ size: 'full' });
+      BottomSheet.toggleSelfFullSize({ isFullSize: true });
     }
 
     function onBlur(e: FocusEvent) {
-      if (!isInput(e.target) || noResetHeightOnBlur) {
+      if (!isInput(e.target) || noResetHeightOnBlur || forceFullNative || isInCompactModal(e.target)) {
         return;
       }
 
       blurTimeout = window.setTimeout(() => {
         blurTimeout = undefined;
-        BottomSheet.setSelfSize({ size: 'half' });
+        BottomSheet.toggleSelfFullSize({ isFullSize: false });
       }, BLUR_TIMEOUT);
     }
 
@@ -148,7 +142,7 @@ export function useDelegatedBottomSheet(
       document.removeEventListener('focusout', onBlur);
       document.removeEventListener('focusin', onFocus);
     };
-  }, [dialogRef, isDelegatedAndOpen, noResetHeightOnBlur]);
+  }, [dialogRef, forceFullNative, isDelegatedAndOpen, noResetHeightOnBlur]);
 }
 
 export function useOpenFromMainBottomSheet(
@@ -172,22 +166,6 @@ export function useOpenFromMainBottomSheet(
   }, [key, open]);
 }
 
-export function callActionInMain<K extends keyof ActionPayloads>(name: K, options?: ActionPayloads[K]) {
-  BottomSheet.callActionInMain({
-    name,
-    // eslint-disable-next-line no-null/no-null
-    optionsJson: JSON.stringify(options ?? null),
-  });
-}
-
-export function callActionInNative<K extends keyof ActionPayloads>(name: K, options?: ActionPayloads[K]) {
-  BottomSheet.callActionInNative({
-    name,
-    // eslint-disable-next-line no-null/no-null
-    optionsJson: JSON.stringify(options ?? null),
-  });
-}
-
 export function openInMain(key: BottomSheetKeys) {
   BottomSheet.openInMain({ key });
 }
@@ -198,6 +176,12 @@ function isInput(el?: EventTarget | null) {
   return (el.tagName === 'INPUT' && textInputTypes.has((el as HTMLInputElement).type))
     || el.tagName === 'TEXTAREA'
     || (el.tagName === 'DIV' && el.isContentEditable);
+}
+
+function isInCompactModal(el?: EventTarget | null) {
+  if (!el || !(el instanceof HTMLElement)) return false;
+
+  return el.matches(COMPACT_MODAL_CSS_SELECTOR) || !!el.closest('.is-compact-modal');
 }
 
 function preventScrollOnFocus(el: HTMLDivElement) {

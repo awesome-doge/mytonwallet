@@ -1,4 +1,5 @@
 type CollectionByKey<Member> = Record<number | string, Member>;
+type GroupedByKey<Member> = Record<number | string, Member[]>;
 
 type OrderDirection =
   'asc'
@@ -11,6 +12,20 @@ interface OrderCallback<T> {
 export function buildCollectionByKey<T extends AnyLiteral>(collection: T[], key: keyof T): CollectionByKey<T> {
   return collection.reduce((byKey: CollectionByKey<T>, member: T) => {
     byKey[member[key]] = member;
+
+    return byKey;
+  }, {});
+}
+
+export function groupBy<T extends AnyLiteral>(collection: T[], key: keyof T): GroupedByKey<T> {
+  return collection.reduce((byKey: GroupedByKey<T>, member: T) => {
+    const groupKey = member[key];
+
+    if (!byKey[groupKey]) {
+      byKey[groupKey] = [member];
+    } else {
+      byKey[groupKey]!.push(member);
+    }
 
     return byKey;
   }, {});
@@ -51,6 +66,16 @@ export function omit<T extends object, K extends keyof T>(object: T, keys: K[]):
   return pick(object, savedKeys);
 }
 
+export function omitUndefined<T extends object>(object: T): T {
+  return Object.keys(object).reduce((result, stringKey) => {
+    const key = stringKey as keyof T;
+    if (object[key] !== undefined) {
+      result[key as keyof T] = object[key];
+    }
+    return result;
+  }, {} as T);
+}
+
 export function orderBy<T>(
   collection: T[],
   orderRule: (keyof T) | OrderCallback<T> | ((keyof T) | OrderCallback<T>)[],
@@ -60,7 +85,10 @@ export function orderBy<T>(
     const aValue = (typeof currentOrderRule === 'function' ? currentOrderRule(a) : a[currentOrderRule]) || 0;
     const bValue = (typeof currentOrderRule === 'function' ? currentOrderRule(b) : b[currentOrderRule]) || 0;
 
-    return isAsc ? aValue - bValue : bValue - aValue;
+    if (aValue === bValue) return 0;
+
+    const condition = isAsc ? aValue > bValue : aValue < bValue;
+    return condition ? 1 : -1;
   }
 
   if (Array.isArray(orderRule)) {
@@ -118,6 +146,10 @@ export function cloneDeep<T>(value: T): T {
     acc[key as keyof T] = cloneDeep(value[key as keyof T]);
     return acc;
   }, {} as T);
+}
+
+export function isLiteralObject(value: any): value is AnyLiteral {
+  return isObject(value) && !Array.isArray(value);
 }
 
 function isObject(value: any): value is object {

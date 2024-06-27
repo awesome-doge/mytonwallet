@@ -1,18 +1,24 @@
 const REPO = 'mytonwalletorg/mytonwallet';
 const LATEST_RELEASE_API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 const LATEST_RELEASE_WEB_URL = `https://github.com/${REPO}/releases/latest`;
+const LATEST_RELEASE_DOWNLOAD_URL = `https://github.com/${REPO}/releases/download/v%VERSION%`;
 const WEB_APP_URL = '/';
 const MOBILE_URLS = {
   ios: 'https://apps.apple.com/ru/app/mytonwallet-anyway-ton-wallet/id6464677844',
   android: 'https://play.google.com/store/apps/details?id=org.mytonwallet.app',
+  androidDirect: `${LATEST_RELEASE_DOWNLOAD_URL}/MyTonWallet.apk`,
 };
 
 const platform = getPlatform();
-const currentPage = location.href.includes('mac.html')
-  ? 'mac'
-  : location.href.includes('unsupported.html')
-    ? 'unsupported'
-    : 'index';
+const currentPage = location.href.includes('/android')
+  ? 'android'
+  : location.href.includes('/mac')
+    ? 'mac'
+    : location.href.includes('/mobile')
+      ? 'mobile'
+      : location.href.includes('/desktop')
+        ? 'desktop'
+        : 'index';
 
 // Request the latest release information from GitHub
 const packagesPromise = fetch(LATEST_RELEASE_API_URL)
@@ -51,21 +57,33 @@ const packagesPromise = fetch(LATEST_RELEASE_API_URL)
     console.error('Error:', error);
   });
 
+const IS_DESKTOP = ['Windows', 'Linux', 'macOS'].includes(platform);
+const IS_MOBILE = !IS_DESKTOP;
+
 (function init() {
-  if (['Windows', 'Linux', 'iOS', 'Android'].includes(platform)) {
-    if (currentPage === 'index') {
-      setupDownloadButton();
-      setupVersion();
-    }
-  } else if (platform === 'macOS') {
-    if (currentPage !== 'mac') {
-      redirectToMac();
-    } else {
-      setupVersion();
-    }
-  } else if (currentPage !== 'unsupported') {
-    redirectToUnsupported();
+  // Handling subpages /get/desktop and /get/mobile
+  const isTargetPlatform = (currentPage === 'mobile' && IS_MOBILE) || (currentPage === 'desktop' && IS_DESKTOP);
+  if (isTargetPlatform) {
+    // If we are on the target platform, redirect to the universal page
+    redirectToUniversalPage();
+    return;
   }
+  if (currentPage === 'mobile') {
+    // Version is only needed for /get/mobile
+    setupVersion();
+  }
+
+  if (currentPage === 'index') {
+    if (['Windows', 'Linux', 'iOS'].includes(platform)) {
+      setupDownloadButton();
+    } else if (platform === 'Android') {
+      redirectToAndroid();
+    } else if (platform === 'macOS') {
+      redirectToMac();
+    }
+  }
+
+  setupVersion();
 }());
 
 function getPlatform() {
@@ -109,7 +127,7 @@ function setupVersion() {
       const versionEl = document.querySelector('.version');
 
       let html = `v. ${packages.$version}`;
-      if (['Windows', 'macOS', 'Linux'].includes(platform)) {
+      if (currentPage !== "mobile" && IS_DESKTOP) {
         const signaturesHtml = areSignaturesPresentResult
           ? '<a href="javascript:redirectToFullList();">Signatures</a>'
           : '<span class="missing-signatures">Missing signatures!</span>';
@@ -122,12 +140,16 @@ function setupVersion() {
   });
 }
 
-function redirectToMac() {
-  location.href = './mac.html';
+function redirectToUniversalPage() {
+  location.href = './';
 }
 
-function redirectToUnsupported() {
-  location.href = './unsupported.html';
+function redirectToAndroid() {
+  location.href = './android';
+}
+
+function redirectToMac() {
+  location.href = './mac';
 }
 
 function redirectToWeb() {
@@ -147,13 +169,19 @@ function downloadDefault() {
     download('win');
   } else if (platform === 'Linux') {
     download('linux');
+  } else if (platform === 'Android') {
+    redirectToAndroid();
   } else if (platform === 'macOS') {
     redirectToMac();
   } else if (platform === 'iOS' || platform === 'Android') {
     redirectToStore(platform);
-  } else {
-    redirectToUnsupported();
   }
+}
+
+function downloadAndroidDirect() {
+  packagesPromise.then((packages) => {
+    location.href = MOBILE_URLS.androidDirect.replace('%VERSION%', packages.$version);
+  });
 }
 
 function download(platformKey) {

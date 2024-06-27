@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyTonWallet Connect</title>
+    <link rel="stylesheet" href="/index.css">
+</head>
+<body>
+<div class="container small-padding">
+    <h1>Connect <span class="gradient-text">MyTonWallet</span></h1>
+    <div class="info">
+        <p>
+            <b class="gradient-text">1.</b> Launch the app and log into your wallet.
+        </p>
+        <a href="https://mytonwallet.app/get" target="_blank" class="download-btn">Install MyTonWallet</a>
+    </div>
+    <div class="info">
+        <p>
+            <b class="gradient-text">2.</b> Once you launched MyTonWallet,<br />proceed by clicking the button below.
+        </p>
+        <a href="tc://" id="btn-sign-in" class="download-btn">
+            Open MyTonWallet
+        </a>
+    </div>
+    <div class="info">
+        <p>
+            <b class="gradient-text">3.</b> Once you connected your wallet,<br />go back to dapp.
+        </p>
+        <a href="javascript:window.close();" class="download-btn">
+            Return to dapp
+        </a>
+    </div>
+    <div class="footer">
+        <a href="https://mytonwallet.io">mytonwallet.io</a>
+    </div>
+</div>
+<script>
+  const {
+    pathname,
+    search,
+  } = location;
+
+  const redirectTo = search;
+
+  document.getElementById('btn-sign-in').href = `mytonwallet-tc://${redirectTo}`;
+
+  if (!search?.includes('no-redirect')) {
+    location.href = `mytonwallet-tc://${redirectTo}`;
+    history.replaceState({}, '', `${pathname}${search}${search ? '&' : '?'}no-redirect`);
+  }
+</script>
+</body>
+</html>

@@ -4,6 +4,7 @@ import { app, nativeImage } from 'electron';
 import contextMenu from 'electron-context-menu';
 import path from 'path';
 
+import { IS_PRODUCTION } from '../config';
 import { initDeeplink } from './deeplink';
 import { setupSecrets } from './secrets';
 import { IS_MAC_OS } from './utils';
@@ -17,6 +18,7 @@ contextMenu({
   showSearchWithGoogle: false,
   showCopyImage: false,
   showSelectAll: true,
+  showInspectElement: !IS_PRODUCTION,
 });
 
 app.on('ready', () => {

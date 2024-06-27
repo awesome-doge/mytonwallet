@@ -1,8 +1,7 @@
-import { addCallback, removeCallback, setGlobal } from '../lib/teact/teactn';
+import { addCallback, removeCallback } from '../lib/teact/teactn';
 
-import type { GlobalState, TokenPeriod } from './types';
-import {
-  AppState,
+import type {
+  AccountState, GlobalState, TokenPeriod, UserToken,
 } from './types';
 
 import {
@@ -12,26 +11,28 @@ import {
   GLOBAL_STATE_CACHE_KEY,
   IS_CAPACITOR,
   MAIN_ACCOUNT_ID,
+  TONCOIN_SLUG,
 } from '../config';
 import { buildAccountId, parseAccountId } from '../util/account';
-import authApi from '../util/authApi';
-import { cloneDeep, mapValues, pick } from '../util/iteratees';
+import { bigintReviver } from '../util/bigint';
 import {
-  onBeforeUnload, onIdle, throttle,
-} from '../util/schedulers';
+  cloneDeep, mapValues, pick, pickTruthy,
+} from '../util/iteratees';
+import { onBeforeUnload, onIdle, throttle } from '../util/schedulers';
 import { IS_ELECTRON } from '../util/windowEnvironment';
 import { getIsTxIdLocal } from './helpers';
 import { addActionHandler, getGlobal } from './index';
 import { INITIAL_STATE, STATE_VERSION } from './initialState';
-import { updateHardware } from './reducers';
+import { selectAccountTokens } from './selectors';
 
 import { isHeavyAnimating } from '../hooks/useHeavyAnimationCheck';
 
 const UPDATE_THROTTLE = IS_CAPACITOR ? 500 : 5000;
-const ACTIVITIES_LIMIT = 50;
-const ANIMATION_DELAY_MS = 320;
+const ACTIVITIES_LIMIT = 20;
+const ACTIVITY_TOKENS_LIMIT = 30;
 
-const updateCacheThrottled = throttle(() => onIdle(updateCache), UPDATE_THROTTLE, false);
+const updateCacheThrottled = throttle(() => onIdle(() => updateCache()), UPDATE_THROTTLE, false);
+const updateCacheForced = () => updateCache(true);
 
 let isCaching = false;
 let unsubscribeFromBeforeUnload: NoneToVoidFunction | undefined;
@@ -42,97 +43,56 @@ export function initCache() {
     return;
   }
 
-  addActionHandler('afterSignIn', (global, actions) => {
-    setGlobal({ ...global, appState: AppState.Main });
-
-    setTimeout(() => {
-      actions.restartAuth();
-    }, ANIMATION_DELAY_MS);
-
-    if (isCaching) {
-      return;
-    }
-    setupCaching();
-  });
+  addActionHandler('afterSignIn', setupCaching);
 
   addActionHandler('afterSignOut', (global, actions, payload) => {
     const { isFromAllAccounts } = payload || {};
+    if (!isFromAllAccounts) return;
 
-    if (isFromAllAccounts) {
-      setGlobal({
-        ...global,
-        state: AppState.Auth,
-      });
-      global = getGlobal();
-      if (IS_CAPACITOR && global.settings.authConfig?.kind === 'native-biometrics') {
-        authApi.removeNativeBiometrics();
-      }
-
-      preloadedData = pick(global, ['swapTokenInfo', 'tokenInfo', 'restrictions']);
-
-      actions.resetApiSettings({ areAllDisabled: true });
-
-      localStorage.removeItem(GLOBAL_STATE_CACHE_KEY);
-
-      if (!isCaching) {
-        return;
-      }
-
-      clearCaching();
-    }
-  });
-
-  addActionHandler('cancelCaching', () => {
-    if (!isCaching) {
-      return;
-    }
+    preloadedData = pick(global, ['swapTokenInfo', 'tokenInfo', 'restrictions']);
 
     clearCaching();
+
+    localStorage.removeItem(GLOBAL_STATE_CACHE_KEY);
   });
 
-  addActionHandler('initLedgerPage', (global) => {
-    global = updateHardware(global, {
-      isRemoteTab: true,
-    });
-    setGlobal({ ...global, appState: AppState.Ledger });
-  });
-}
-
-export function loadCache(initialState: GlobalState) {
-  return readCache(initialState);
+  addActionHandler('cancelCaching', clearCaching);
 }
 
 function setupCaching() {
-  isCaching = true;
-  unsubscribeFromBeforeUnload = onBeforeUnload(() => {
-    // Allow to manually delete cache
-    if (DEBUG && !localStorage.getItem(GLOBAL_STATE_CACHE_KEY)) {
-      return;
-    }
+  if (isCaching) return;
 
-    updateCache();
-  }, true);
-  window.addEventListener('blur', updateCache);
+  isCaching = true;
+
   addCallback(updateCacheThrottled);
+  unsubscribeFromBeforeUnload = onBeforeUnload(updateCacheForced, true);
+  window.addEventListener('blur', updateCacheForced);
+
+  updateCacheForced();
 }
 
 function clearCaching() {
-  isCaching = false;
+  if (!isCaching) return;
+
+  window.removeEventListener('blur', updateCacheForced);
+  unsubscribeFromBeforeUnload?.();
   removeCallback(updateCacheThrottled);
-  window.removeEventListener('blur', updateCache);
-  if (unsubscribeFromBeforeUnload) {
-    unsubscribeFromBeforeUnload();
-  }
+
+  isCaching = false;
 }
 
-function readCache(initialState: GlobalState): GlobalState {
+export function loadCache(initialState: GlobalState): GlobalState {
+  if (GLOBAL_STATE_CACHE_DISABLED) {
+    return initialState;
+  }
+
   if (DEBUG) {
     // eslint-disable-next-line no-console
     console.time('global-state-cache-read');
   }
 
   const json = localStorage.getItem(GLOBAL_STATE_CACHE_KEY);
-  let cached = json ? JSON.parse(json) as GlobalState : undefined;
+  let cached = json ? JSON.parse(json, bigintReviver) as GlobalState : undefined;
 
   if (DEBUG) {
     // eslint-disable-next-line no-console
@@ -333,40 +293,106 @@ function migrateCache(cached: GlobalState, initialState: GlobalState) {
     cached.stateVersion = 9;
   }
 
-  if (cached.stateVersion === 9) {
+  function clearActivities() {
     if (cached.byAccountId) {
       for (const accountId of Object.keys(cached.byAccountId)) {
         delete (cached.byAccountId[accountId] as any).activities;
       }
     }
+  }
+
+  if (cached.stateVersion === 9) {
+    clearActivities();
     cached.stateVersion = 10;
   }
 
   if (cached.stateVersion === 10) {
-    if (cached.settings.areTokensWithNoBalanceHidden === undefined) {
-      cached.settings.areTokensWithNoBalanceHidden = true;
+    if ((cached.settings as any).areTokensWithNoBalanceHidden === undefined) {
+      (cached.settings as any).areTokensWithNoBalanceHidden = true;
     }
     cached.stateVersion = 11;
   }
 
   if (cached.stateVersion === 11) {
+    clearActivities();
+    cached.stateVersion = 12;
+  }
+
+  if (cached.stateVersion === 12) {
     if (cached.byAccountId) {
       for (const accountId of Object.keys(cached.byAccountId)) {
         delete cached.byAccountId[accountId].activities;
+
+        const { balances } = cached.byAccountId[accountId];
+        if (balances) {
+          // eslint-disable-next-line @typescript-eslint/no-loop-func
+          balances.bySlug = Object.entries(balances.bySlug).reduce((acc, [slug, balance]) => {
+            acc[slug] = BigInt(balance);
+            return acc;
+          }, {} as Record<string, bigint>);
+        }
       }
     }
-    cached.stateVersion = 12;
+    cached.stateVersion = 13;
+  }
+
+  if (cached.stateVersion === 13) {
+    const { areTokensWithNoPriceHidden, areTokensWithNoBalanceHidden } = cached.settings as any as {
+      areTokensWithNoPriceHidden?: boolean;
+      areTokensWithNoBalanceHidden?: boolean;
+    };
+
+    cached.settings.areTokensWithNoCostHidden = Boolean(areTokensWithNoPriceHidden || areTokensWithNoBalanceHidden);
+    cached.stateVersion = 14;
+  }
+
+  if (cached.stateVersion === 14) {
+    clearActivities();
+    cached.stateVersion = 15;
+  }
+
+  if (cached.stateVersion === 15) {
+    clearActivities();
+    cached.stateVersion = 16;
+  }
+
+  if (cached.stateVersion === 16) {
+    clearActivities();
+    cached.stateVersion = 17;
+  }
+
+  if (cached.stateVersion === 17) {
+    clearActivities();
+    cached.stateVersion = 18;
+  }
+
+  if (cached.stateVersion === 18 || cached.stateVersion === 19) {
+    for (const accountId of Object.keys(cached.byAccountId)) {
+      cached.byAccountId[accountId].currentTokenPeriod = '1D';
+    }
+    cached.stateVersion = 20;
+  }
+
+  if (cached.stateVersion === 20) {
+    clearActivities();
+    cached.stateVersion = 21;
+  }
+
+  if (cached.stateVersion === 21) {
+    clearActivities();
+    cached.stateVersion = 22;
+  }
+
+  if (cached.stateVersion === 22) {
+    clearActivities();
+    cached.stateVersion = 23;
   }
 
   // When adding migration here, increase `STATE_VERSION`
 }
 
-function updateCache() {
-  if (GLOBAL_STATE_CACHE_DISABLED) {
-    return;
-  }
-
-  if (!isCaching || isHeavyAnimating()) {
+function updateCache(force?: boolean) {
+  if (GLOBAL_STATE_CACHE_DISABLED || !isCaching || (!force && isHeavyAnimating())) {
     return;
   }
 
@@ -400,33 +426,58 @@ function reduceByAccountId(global: GlobalState) {
       'savedAddresses',
       'staking',
       'stakingHistory',
+      'activeContentTab',
+      'landscapeActionsActiveTabIndex',
+      'browserHistory',
+      'blacklistedNftAddresses',
     ]);
 
-    const { idsBySlug, newestTransactionsBySlug, byId } = state.activities || {};
-
-    if (byId && idsBySlug && Object.keys(idsBySlug).length) {
-      const reducedIdsBySlug = mapValues(idsBySlug, (ids) => {
-        const result: string[] = [];
-        let visibleIdCount = 0;
-        ids.filter((id) => !getIsTxIdLocal(id)).forEach((id) => {
-          if (visibleIdCount === ACTIVITIES_LIMIT) return;
-
-          if (!byId[id].shouldHide) {
-            visibleIdCount += 1;
-          }
-          result.push(id);
-        });
-
-        return result;
-      });
-
-      acc[accountId].activities = {
-        byId: pick(state.activities!.byId, Object.values(reducedIdsBySlug).flat()),
-        idsBySlug: reducedIdsBySlug,
-        newestTransactionsBySlug,
-      };
-    }
+    const accountTokens = selectAccountTokens(global, accountId);
+    acc[accountId].activities = reduceAccountActivities(state.activities, accountTokens);
 
     return acc;
   }, {} as GlobalState['byAccountId']);
+}
+
+function reduceAccountActivities(activities?: AccountState['activities'], tokens?: UserToken[]) {
+  const { idsBySlug, newestTransactionsBySlug, byId } = activities || {};
+  if (!tokens || !idsBySlug || !byId) return undefined;
+
+  const reducedSlugs = tokens.slice(0, ACTIVITY_TOKENS_LIMIT).map(({ slug }) => slug);
+  if (!reducedSlugs.includes(TONCOIN_SLUG)) {
+    reducedSlugs.push(TONCOIN_SLUG);
+  }
+
+  const reducedIdsBySlug = mapValues(pickTruthy(idsBySlug, reducedSlugs), (ids) => {
+    const result: string[] = [];
+
+    let visibleIdCount = 0;
+
+    ids
+      .filter((id) => !getIsTxIdLocal(id) && Boolean(byId[id]))
+      .forEach((id) => {
+        if (visibleIdCount === ACTIVITIES_LIMIT) return;
+
+        if (!byId[id].shouldHide) {
+          visibleIdCount += 1;
+        }
+
+        result.push(id);
+      });
+
+    return result;
+  });
+
+  const reducedNewestTransactionsBySlug = newestTransactionsBySlug
+    ? pick(newestTransactionsBySlug, reducedSlugs)
+    : undefined;
+
+  const reducedIds = Object.values(reducedIdsBySlug).flat();
+  const reducedById = pick(byId, reducedIds);
+
+  return {
+    byId: reducedById,
+    idsBySlug: reducedIdsBySlug,
+    newestTransactionsBySlug: reducedNewestTransactionsBySlug,
+  };
 }

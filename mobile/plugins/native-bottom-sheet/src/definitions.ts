@@ -9,6 +9,8 @@ export type BottomSheetKeys =
   | 'stake'
   | 'unstake'
   | 'staking-info'
+  | 'vesting-info'
+  | 'vesting-confirm'
   | 'transaction-info'
   | 'swap-activity'
   | 'backup'
@@ -16,9 +18,10 @@ export type BottomSheetKeys =
   | 'settings'
   | 'qr-scanner'
   | 'dapp-connect'
-  | 'dapp-transaction'
+  | 'dapp-transfer'
   | 'disclaimer'
-  | 'backup-warning';
+  | 'backup-warning'
+  | 'onramp-widget';
 
 export interface BottomSheetPlugin {
   prepare(): Promise<void>;
@@ -26,6 +29,10 @@ export interface BottomSheetPlugin {
   applyScrollPatch(): Promise<void>;
 
   clearScrollPatch(): Promise<void>;
+
+  disable(): Promise<void>;
+
+  enable(): Promise<void>;
 
   delegate(options: { key: BottomSheetKeys, globalJson: string }): Promise<void>;
 
@@ -35,11 +42,7 @@ export interface BottomSheetPlugin {
 
   closeSelf(options: { key: BottomSheetKeys }): Promise<void>;
 
-  setSelfSize(options: { size: 'half' | 'full' }): Promise<void>;
-
-  callActionInMain(options: { name: string, optionsJson: string }): Promise<void>;
-
-  callActionInNative(options: { name: string, optionsJson: string }): Promise<void>;
+  toggleSelfFullSize(options: { isFullSize: boolean }): Promise<void>;
 
   openInMain(options: { key: BottomSheetKeys }): Promise<void>;
 
@@ -53,15 +56,6 @@ export interface BottomSheetPlugin {
     handler: () => void,
   ): Promise<PluginListenerHandle> & PluginListenerHandle;
 
-  addListener(
-    eventName: 'callActionInMain',
-    handler: (options: { name: string, optionsJson: string }) => void,
-  ): Promise<PluginListenerHandle> & PluginListenerHandle;
-
-  addListener(
-    eventName: 'callActionInNative',
-    handler: (options: { name: string, optionsJson: string }) => void,
-  ): Promise<PluginListenerHandle> & PluginListenerHandle;
 
   addListener(
     eventName: 'openInMain',

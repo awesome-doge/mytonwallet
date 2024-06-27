@@ -1,11 +1,12 @@
 import type {
-  ApiDapp, ApiDappsState, ApiNetwork, OnApiUpdate,
+  ApiDapp, ApiDappsState, ApiNetwork, ApiSite, OnApiUpdate,
 } from '../types';
 
 import { buildAccountId, parseAccountId } from '../../util/account';
 import {
   getAccountValue, removeAccountValue, removeNetworkAccountsValue, setAccountValue,
 } from '../common/accounts';
+import { callBackendGet } from '../common/backend';
 import { isUpdaterAlive } from '../common/helpers';
 import { callHook } from '../hooks';
 import { storage } from '../storages';
@@ -178,12 +179,6 @@ export async function getDappsByOrigin(accountId: string): Promise<Record<string
   return await getAccountValue(accountId, 'dapps') || {};
 }
 
-export async function isDappConnected(accountId: string, origin: string) {
-  const dapps = await getDappsByOrigin(accountId);
-
-  return Object.values(dapps).some((dapp) => dapp.origin === origin);
-}
-
 export async function findLastConnectedAccount(network: ApiNetwork, origin: string) {
   const dapps = await getDappsState() || {};
 
@@ -232,4 +227,8 @@ export function getSseLastEventId(): Promise<string | undefined> {
 
 export function setSseLastEventId(lastEventId: string) {
   return storage.setItem('sseLastEventId', lastEventId);
+}
+
+export function loadExploreSites(): Promise<ApiSite[]> {
+  return callBackendGet('/dapp/catalog');
 }

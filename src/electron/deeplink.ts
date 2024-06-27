@@ -4,12 +4,13 @@ import path from 'path';
 import { ElectronAction, ElectronEvent } from './types';
 
 import {
-  IS_LINUX, IS_MAC_OS, IS_WINDOWS, mainWindow,
+  focusMainWindow, IS_LINUX, IS_MAC_OS, IS_WINDOWS, mainWindow,
 } from './utils';
 
 const TON_PROTOCOL = 'ton';
-const TRANSFER_PATH = 'transfer';
 const TONCONNECT_PROTOCOL = 'tc';
+const TONCONNECT_PROTOCOL_SELF = 'mytonwallet-tc';
+const SELF_PROTOCOL = 'mtw';
 
 let deeplinkUrl: string | undefined;
 
@@ -17,9 +18,13 @@ export function initDeeplink() {
   if (process.defaultApp) {
     if (process.argv.length >= 2) {
       app.setAsDefaultProtocolClient(TONCONNECT_PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+      app.setAsDefaultProtocolClient(TONCONNECT_PROTOCOL_SELF, process.execPath, [path.resolve(process.argv[1])]);
+      app.setAsDefaultProtocolClient(SELF_PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
     }
   } else {
     app.setAsDefaultProtocolClient(TONCONNECT_PROTOCOL);
+    app.setAsDefaultProtocolClient(TONCONNECT_PROTOCOL_SELF);
+    app.setAsDefaultProtocolClient(SELF_PROTOCOL);
   }
 
   ipcMain.handle(ElectronAction.TOGGLE_DEEPLINK_HANDLER, (event, isEnabled: boolean) => {
@@ -50,6 +55,7 @@ export function initDeeplink() {
       event.preventDefault();
       deeplinkUrl = url;
       processDeeplink();
+      focusMainWindow();
     });
   });
 
@@ -65,18 +71,7 @@ export function initDeeplink() {
     }
 
     processDeeplink();
-
-    if (mainWindow) {
-      if (!mainWindow.isVisible()) {
-        mainWindow.show();
-      }
-
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-
-      mainWindow.focus();
-    }
+    focusMainWindow();
   });
 }
 
@@ -85,31 +80,21 @@ export function processDeeplink() {
     return;
   }
 
-  if (isTonTransferDeeplink(deeplinkUrl)) {
+  if (getIsDeeplink(deeplinkUrl)) {
     mainWindow.webContents.send(ElectronEvent.DEEPLINK, {
       url: deeplinkUrl,
     });
-  } else if (isTonConnectDeeplink(deeplinkUrl)) {
-    mainWindow.webContents.send(ElectronEvent.DEEPLINK_TONCONNECT, {
-      url: deeplinkUrl,
-    });
   }
-
   deeplinkUrl = undefined;
 }
 
 function findDeeplink(args: string[]) {
-  return args.find((arg) => isTonDeeplink(arg) || isTonConnectDeeplink(arg));
+  return args.find((arg) => getIsDeeplink(arg));
 }
 
-function isTonDeeplink(url: string) {
-  return url.startsWith(`${TON_PROTOCOL}://`);
-}
-
-function isTonTransferDeeplink(url: string) {
-  return url.startsWith(`${TON_PROTOCOL}://${TRANSFER_PATH}/`);
-}
-
-function isTonConnectDeeplink(url: string) {
-  return url.startsWith(`${TONCONNECT_PROTOCOL}://`);
+function getIsDeeplink(url: string) {
+  return url.startsWith(`${TON_PROTOCOL}://`)
+    || url.startsWith(`${TONCONNECT_PROTOCOL}://`)
+    || url.startsWith(`${TONCONNECT_PROTOCOL_SELF}://`)
+    || url.startsWith(`${SELF_PROTOCOL}://`);
 }

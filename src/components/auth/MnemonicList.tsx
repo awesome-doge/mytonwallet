@@ -8,6 +8,7 @@ import useHistoryBack from '../../hooks/useHistoryBack';
 import useLang from '../../hooks/useLang';
 
 import Button from '../ui/Button';
+import Emoji from '../ui/Emoji';
 import ModalHeader from '../ui/ModalHeader';
 
 import modalStyles from '../ui/Modal.module.scss';
@@ -36,6 +37,9 @@ function MnemonicList({
       <div className={buildClassName(styles.mnemonicContainer, modalStyles.transitionContent, 'custom-scroll')}>
         <p className={buildClassName(styles.info, styles.small)}>
           {renderText(lang('$mnemonic_list_description'))}
+        </p>
+        <p className={buildClassName(styles.info, styles.small)}>
+          <Emoji from="⚠️" />{' '}{renderText(lang('$mnemonic_warning'))}
         </p>
         <ol className={styles.words}>
           {mnemonic?.map((word) => (

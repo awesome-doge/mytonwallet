@@ -1,15 +1,15 @@
 import React, {
-  memo, useEffect, useRef, useState,
+  memo, type TeactNode, useEffect, useMemo, useRef, useState,
 } from '../../lib/teact/teact';
 import { getActions, withGlobal } from '../../global';
 
-import { IS_CAPACITOR, TONSCAN_BASE_MAINNET_URL, TONSCAN_BASE_TESTNET_URL } from '../../config';
+import { TON_EXPLORER_NAME } from '../../config';
 import { selectCurrentAccountState } from '../../global/selectors';
 import buildClassName from '../../util/buildClassName';
-import { vibrateOnSuccess } from '../../util/capacitor';
 import captureKeyboardListeners from '../../util/captureKeyboardListeners';
 import { copyTextToClipboard } from '../../util/clipboard';
 import { shortenAddress } from '../../util/shortenAddress';
+import { getTonExplorerAddressUrl } from '../../util/url';
 
 import useFlag from '../../hooks/useFlag';
 import useFocusAfterAnimation from '../../hooks/useFocusAfterAnimation';
@@ -25,14 +25,17 @@ import Transition from './Transition';
 import styles from './InteractiveTextField.module.scss';
 import modalStyles from './Modal.module.scss';
 
+import scamImg from '../../assets/scam.svg';
+
 interface OwnProps {
   address?: string;
   addressName?: string;
+  isScam?: boolean;
   text?: string;
   spoiler?: string;
   spoilerRevealText?: string;
   spoilerCallback?: NoneToVoidFunction;
-  copyNotification: string;
+  copyNotification?: string;
   className?: string;
   textClassName?: string;
   noSavedAddress?: boolean;
@@ -49,6 +52,7 @@ const SAVED_ADDRESS_NAME_MAX_LENGTH = 255;
 function InteractiveTextField({
   address,
   addressName,
+  isScam,
   text,
   spoiler,
   spoilerRevealText,
@@ -71,8 +75,13 @@ function InteractiveTextField({
   const [savedAddressName, setSavedAddressName] = useState<string | undefined>(addressName);
   const [isConcealedWithSpoiler, , revealSpoiler] = useFlag(Boolean(spoiler));
 
-  const tonscanBaseUrl = isTestnet ? TONSCAN_BASE_TESTNET_URL : TONSCAN_BASE_MAINNET_URL;
-  const tonscanAddressUrl = address ? `${tonscanBaseUrl}address/${address}` : undefined;
+  const addressUrl = getTonExplorerAddressUrl(address, isTestnet);
+  const tonExplorerTitle = useMemo(() => {
+    return (lang('View Address on %ton_explorer_name%', {
+      ton_explorer_name: TON_EXPLORER_NAME,
+    }) as TeactNode[]
+    ).join('');
+  }, [lang]);
 
   useEffect(() => {
     if (isSaveAddressModalOpen) {
@@ -101,11 +110,9 @@ function InteractiveTextField({
   useFocusAfterAnimation(addressNameRef, !isSaveAddressModalOpen);
 
   const handleCopy = useLastCallback(() => {
+    if (!copyNotification) return;
     showNotification({ message: copyNotification, icon: 'icon-copy' });
     void copyTextToClipboard(address || text || '');
-    if (IS_CAPACITOR) {
-      void vibrateOnSuccess();
-    }
   });
 
   const handleRevealSpoiler = useLastCallback(() => {
@@ -143,17 +150,20 @@ function InteractiveTextField({
   function renderContent(content?: string) {
     return (
       <span
-        className={buildClassName(styles.button, textClassName)}
+        className={buildClassName(styles.button, isScam && styles.scam, textClassName)}
         title={lang('Copy')}
         onClick={handleCopy}
         tabIndex={0}
         role="button"
       >
+        {isScam && <img src={scamImg} alt={lang('Scam')} className={styles.scamImage} />}
         {content}
         {Boolean(addressName) && (
-          <span className={styles.shortAddress}>{shortenAddress(address!)}</span>
+          <span className={buildClassName(styles.shortAddress, isScam && styles.scam)}>{shortenAddress(address!)}</span>
         )}
-        <i className={buildClassName(styles.icon, 'icon-copy')} aria-hidden />
+        {Boolean(copyNotification) && (
+          <i className={buildClassName(styles.icon, 'icon-copy')} aria-hidden />
+        )}
       </span>
     );
   }
@@ -196,7 +206,7 @@ function InteractiveTextField({
       <div className={buildClassName(styles.wrapper, className)}>
         {renderContentOrSpoiler()}
 
-        {!noSavedAddress && address && (
+        {!isScam && !noSavedAddress && address && (
           <span
             className={styles.button}
             title={lang(isAddressAlreadySaved ? 'Remove From Saved Addresses' : 'Add To Saved Addresses')}
@@ -217,13 +227,13 @@ function InteractiveTextField({
 
         {!noExplorer && address && (
           <a
-            href={tonscanAddressUrl}
+            href={addressUrl}
             className={styles.button}
-            title={lang('View Address on TON Explorer')}
+            title={tonExplorerTitle}
             target="_blank"
             rel="noreferrer noopener"
           >
-            <i className={buildClassName(styles.icon, 'icon-tonscan')} aria-hidden />
+            <i className={buildClassName(styles.icon, 'icon-tonexplorer-small')} aria-hidden />
           </a>
         )}
       </div>

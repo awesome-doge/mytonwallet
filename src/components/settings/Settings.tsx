@@ -1,8 +1,12 @@
+import { AndroidSettings, IOSSettings, NativeSettings } from 'capacitor-native-settings';
+import { Dialog } from 'native-dialog';
 import React, {
   memo, useEffect, useMemo, useRef, useState,
 } from '../../lib/teact/teact';
 import { getActions, withGlobal } from '../../global';
 
+import type { ApiWalletInfo, ApiWalletVersion } from '../../api/types';
+import type { Wallet } from './SettingsWalletVersion';
 import { type GlobalState, SettingsState, type UserToken } from '../../global/types';
 
 import {
@@ -13,7 +17,9 @@ import {
   IS_EXTENSION,
   LANG_LIST,
   PROXY_HOSTS,
+  SUPPORT_USERNAME,
   TELEGRAM_WEB_URL,
+  TONCOIN_SLUG,
 } from '../../config';
 import {
   selectAccountSettings,
@@ -24,6 +30,9 @@ import {
 import buildClassName from '../../util/buildClassName';
 import { getIsNativeBiometricAuthSupported } from '../../util/capacitor';
 import captureEscKeyListener from '../../util/captureEscKeyListener';
+import { toBig, toDecimal } from '../../util/decimals';
+import { formatCurrency, getShortCurrencySymbol } from '../../util/formatNumber';
+import { openUrl } from '../../util/openUrl';
 import resolveModalTransitionName from '../../util/resolveModalTransitionName';
 import { captureControlledSwipe } from '../../util/swipeController';
 import {
@@ -31,10 +40,14 @@ import {
   IS_DAPP_SUPPORTED,
   IS_DELEGATED_BOTTOM_SHEET,
   IS_ELECTRON,
+  IS_IOS,
+  IS_IOS_APP,
   IS_LEDGER_SUPPORTED,
   IS_TOUCH_ENV,
+  IS_WEB,
 } from '../../util/windowEnvironment';
 
+import useEffectOnce from '../../hooks/useEffectOnce';
 import useFlag from '../../hooks/useFlag';
 import useHistoryBack from '../../hooks/useHistoryBack';
 import useLang from '../../hooks/useLang';
@@ -61,6 +74,7 @@ import SettingsDeveloperOptions from './SettingsDeveloperOptions';
 import SettingsDisclaimer from './SettingsDisclaimer';
 import SettingsLanguage from './SettingsLanguage';
 import SettingsTokenList from './SettingsTokenList';
+import SettingsWalletVersion from './SettingsWalletVersion';
 
 import modalStyles from '../ui/Modal.module.scss';
 import styles from './Settings.module.scss';
@@ -73,12 +87,17 @@ import biometricsImg from '../../assets/settings/settings_biometrics.svg';
 import connectedDappsImg from '../../assets/settings/settings_connected-dapps.svg';
 import disclaimerImg from '../../assets/settings/settings_disclaimer.svg';
 import exitImg from '../../assets/settings/settings_exit.svg';
+import installAppImg from '../../assets/settings/settings_install-app.svg';
+import installDesktopImg from '../../assets/settings/settings_install-desktop.svg';
+import installMobileImg from '../../assets/settings/settings_install-mobile.svg';
 import languageImg from '../../assets/settings/settings_language.svg';
 import ledgerImg from '../../assets/settings/settings_ledger.svg';
+import supportImg from '../../assets/settings/settings_support.svg';
 import telegramImg from '../../assets/settings/settings_telegram-menu.svg';
 import tonLinksImg from '../../assets/settings/settings_ton-links.svg';
 import tonMagicImg from '../../assets/settings/settings_ton-magic.svg';
 import tonProxyImg from '../../assets/settings/settings_ton-proxy.svg';
+import walletVersionImg from '../../assets/settings/settings_wallet-version.svg';
 
 type OwnProps = {
   isInsideModal?: boolean;
@@ -92,9 +111,14 @@ type StateProps = {
   isBiometricAuthEnabled: boolean;
   isPasswordPresent?: boolean;
   isHardwareAccount?: boolean;
+  currentVersion?: ApiWalletVersion;
+  versions?: ApiWalletInfo[];
+  isCopyStorageEnabled?: boolean;
+  supportAccountsCount?: number;
 };
 
 const AMOUNT_OF_CLICKS_FOR_DEVELOPERS_MODE = 5;
+const SUPPORT_ACCOUNTS_COUNT_DEFAULT = 1;
 
 function Settings({
   settings: {
@@ -109,8 +133,7 @@ function Settings({
     isTonProxyEnabled,
     isTonMagicEnabled,
     isDeeplinkHookEnabled,
-    areTokensWithNoBalanceHidden,
-    areTokensWithNoPriceHidden,
+    areTokensWithNoCostHidden,
     isSortByValueEnabled,
     dapps,
     baseCurrency,
@@ -122,6 +145,10 @@ function Settings({
   isBiometricAuthEnabled,
   isPasswordPresent,
   isHardwareAccount,
+  currentVersion,
+  versions,
+  isCopyStorageEnabled,
+  supportAccountsCount = SUPPORT_ACCOUNTS_COUNT_DEFAULT,
 }: OwnProps & StateProps) {
   const {
     setSettingsState,
@@ -149,15 +176,39 @@ function Settings({
   const [isLogOutModalOpened, openLogOutModal, closeLogOutModal] = useFlag();
 
   const activeLang = useMemo(() => LANG_LIST.find((l) => l.langCode === langCode), [langCode]);
+  const shouldRenderNativeBiometrics = isPasswordPresent && (getIsNativeBiometricAuthSupported() || IS_IOS_APP);
+
+  const shortBaseSymbol = getShortCurrencySymbol(baseCurrency);
+
+  const tonToken = useMemo(() => tokens?.find(({ slug }) => slug === TONCOIN_SLUG), [tokens]);
+
+  const wallets = useMemo(() => {
+    return versions?.map((v) => {
+      const tonBalance = formatCurrency(toDecimal(v.balance), tonToken?.symbol ?? '');
+      const balanceInCurrency = formatCurrency(
+        toBig(v.balance).mul(tonToken?.price ?? 0).round(tonToken?.decimals),
+        shortBaseSymbol,
+      );
+
+      const accountTokens = [tonBalance];
+
+      return {
+        address: v.address,
+        version: v.version,
+        totalBalance: balanceInCurrency,
+        tokens: accountTokens,
+      } satisfies Wallet;
+    }) ?? [];
+  }, [shortBaseSymbol, tonToken, versions]);
 
   const {
     transitionClassNames: telegramLinkClassNames,
     shouldRender: isTelegramLinkRendered,
   } = useShowTransition(isTonMagicEnabled);
 
-  useEffect(() => {
+  useEffectOnce(() => {
     initTokensOrder();
-  }, []);
+  });
 
   const {
     handleScroll: handleContentScroll,
@@ -205,7 +256,27 @@ function Settings({
   }
 
   const handleNativeBiometricsTurnOnOpen = useLastCallback(() => {
-    setSettingsState({ state: SettingsState.NativeBiometricsTurnOn });
+    if (!getIsNativeBiometricAuthSupported()) {
+      const warningDescription = IS_IOS
+        ? 'To use this feature, first enable Face ID in your phone settings.'
+        : 'To use this feature, first enable biometrics in your phone settings.';
+      Dialog.confirm({
+        title: lang('Warning!'),
+        message: lang(warningDescription),
+        okButtonTitle: lang('Open Settings'),
+        cancelButtonTitle: lang('Cancel'),
+      })
+        .then(({ value }) => {
+          if (value) {
+            NativeSettings.open({
+              optionAndroid: AndroidSettings.ApplicationDetails,
+              optionIOS: IOSSettings.App,
+            });
+          }
+        });
+    } else {
+      setSettingsState({ state: SettingsState.NativeBiometricsTurnOn });
+    }
   });
 
   const handleBackClick = useLastCallback(() => {
@@ -214,6 +285,10 @@ function Settings({
 
   const handleBackClickToAssets = useLastCallback(() => {
     setSettingsState({ state: SettingsState.Assets });
+  });
+
+  const handleOpenWalletVersion = useLastCallback(() => {
+    setSettingsState({ state: SettingsState.WalletVersion });
   });
 
   const handleDeeplinkHookToggle = useLastCallback(() => {
@@ -235,6 +310,18 @@ function Settings({
       openBiometricsTurnOn();
     }
   });
+
+  function handleClickInstallApp() {
+    openUrl('https://mytonwallet.io/get', true);
+  }
+
+  function handleClickInstallOnDesktop() {
+    openUrl('https://mytonwallet.io/get/desktop', true);
+  }
+
+  function handleClickInstallOnMobile() {
+    openUrl('https://mytonwallet.io/get/mobile', true);
+  }
 
   function handleOpenBackupWallet() {
     if (IS_DELEGATED_BOTTOM_SHEET) {
@@ -348,7 +435,17 @@ function Settings({
           className={buildClassName(styles.content, 'custom-scroll')}
           onScroll={handleContentScroll}
         >
-          {isPasswordPresent && getIsNativeBiometricAuthSupported() && (
+          {IS_WEB && (
+            <div className={styles.block}>
+              <div className={styles.item} onClick={handleClickInstallApp}>
+                <img className={styles.menuIcon} src={installAppImg} alt={lang('Install App')} />
+                {lang('Install App')}
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            </div>
+          )}
+          {shouldRenderNativeBiometrics && (
             <NativeBiometricsToggle
               onEnable={handleNativeBiometricsTurnOnOpen}
             />
@@ -421,7 +518,7 @@ function Settings({
 
               <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
             </div>
-            {IS_DAPP_SUPPORTED && (
+            {IS_DAPP_SUPPORTED && !isHardwareAccount && (
               <div className={styles.item} onClick={handleConnectedDappsOpen}>
                 <img className={styles.menuIcon} src={connectedDappsImg} alt={lang('Connected Dapps')} />
                 {lang('Connected Dapps')}
@@ -451,6 +548,17 @@ function Settings({
                 <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
               </div>
             )}
+            {!!versions?.length && (
+              <div className={styles.item} onClick={handleOpenWalletVersion}>
+                <img className={styles.menuIcon} src={walletVersionImg} alt={lang('Wallet Versions')} />
+                {lang('Wallet Versions')}
+
+                <div className={styles.itemInfo}>
+                  {currentVersion}
+                  <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+                </div>
+              </div>
+            )}
             {IS_LEDGER_SUPPORTED && (
               <div className={styles.item} onClick={handleOpenHardwareModal}>
                 <img className={styles.menuIcon} src={ledgerImg} alt={lang('Connect Ledger')} />
@@ -462,18 +570,69 @@ function Settings({
           </div>
 
           <div className={styles.block}>
-            <div className={styles.item} onClick={handleAboutOpen}>
-              <img className={styles.menuIcon} src={aboutImg} alt={lang('About')} />
-              {lang('About')}
-
-              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
-            </div>
             <div className={styles.item} onClick={handleDisclaimerOpen}>
               <img className={styles.menuIcon} src={disclaimerImg} alt={lang('Use Responsibly')} />
               {lang('Use Responsibly')}
 
               <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
             </div>
+            {supportAccountsCount > 0 && (
+              <a
+                href={`https://t.me/${SUPPORT_USERNAME}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.item}
+              >
+                <img className={styles.menuIcon} src={supportImg} alt={lang('Get Support')} />
+                {lang('Get Support')}
+
+                <div className={styles.itemInfo}>
+                  <span className={styles.small}>@{SUPPORT_USERNAME}</span>
+                  <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+                </div>
+              </a>
+            )}
+            <div className={styles.item} onClick={handleAboutOpen}>
+              <img className={styles.menuIcon} src={aboutImg} alt={lang('About')} />
+              {lang('About')}
+
+              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+            </div>
+          </div>
+
+          {IS_CAPACITOR && (
+            <div className={styles.block}>
+              <div className={styles.item} onClick={handleClickInstallOnDesktop}>
+                <img className={styles.menuIcon} src={installDesktopImg} alt={lang('Install on Desktop')} />
+                {lang('Install on Desktop')}
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            </div>
+          )}
+
+          {IS_ELECTRON && (
+            <div className={styles.block}>
+              <div className={styles.item} onClick={handleClickInstallOnMobile}>
+                <img className={styles.menuIcon} src={installMobileImg} alt={lang('Install on Mobile')} />
+                {lang('Install on Mobile')}
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            </div>
+          )}
+
+          {IS_EXTENSION && (
+            <div className={styles.block}>
+              <div className={styles.item} onClick={handleClickInstallApp}>
+                <img className={styles.menuIcon} src={installAppImg} alt={lang('Install App')} />
+                {lang('Install App')}
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            </div>
+          )}
+          <div className={styles.block}>
             <div className={buildClassName(styles.item, styles.item_red)} onClick={openLogOutModal}>
               <img className={styles.menuIcon} src={exitImg} alt={lang('Exit')} />
               {lang('Exit')}
@@ -486,7 +645,12 @@ function Settings({
             {APP_NAME} {APP_VERSION} {APP_ENV_MARKER}
           </div>
         </div>
-        <SettingsDeveloperOptions isOpen={isDeveloperModalOpen} onClose={closeDeveloperModal} isTestnet={isTestnet} />
+        <SettingsDeveloperOptions
+          isOpen={isDeveloperModalOpen}
+          onClose={closeDeveloperModal}
+          isTestnet={isTestnet}
+          isCopyStorageEnabled={isCopyStorageEnabled}
+        />
       </div>
     );
   }
@@ -519,8 +683,7 @@ function Settings({
             orderedSlugs={orderedSlugs}
             isInvestorViewEnabled={isInvestorViewEnabled}
             areTinyTransfersHidden={areTinyTransfersHidden}
-            areTokensWithNoBalanceHidden={areTokensWithNoBalanceHidden}
-            areTokensWithNoPriceHidden={areTokensWithNoPriceHidden}
+            areTokensWithNoCostHidden={areTokensWithNoCostHidden}
             isSortByValueEnabled={isSortByValueEnabled}
             handleBackClick={handleBackClick}
             isInsideModal={isInsideModal}
@@ -569,6 +732,15 @@ function Settings({
             handleBackClick={handleBackClickToAssets}
           />
         );
+      case SettingsState.WalletVersion:
+        return (
+          <SettingsWalletVersion
+            currentVersion={currentVersion}
+            handleBackClick={handleBackClick}
+            isInsideModal={isInsideModal}
+            wallets={wallets}
+          />
+        );
     }
   }
 
@@ -598,6 +770,10 @@ export default memo(withGlobal<OwnProps>((global): StateProps => {
   const { orderedSlugs } = selectAccountSettings(global, global.currentAccountId!) ?? {};
   const isHardwareAccount = selectIsHardwareAccount(global);
   const isPasswordPresent = selectIsPasswordPresent(global);
+  const { isCopyStorageEnabled, supportAccountsCount = 1 } = global.restrictions;
+
+  const { currentVersion, byId: versionsById } = global.walletVersions ?? {};
+  const versions = versionsById?.[global.currentAccountId!];
 
   return {
     settings: global.settings,
@@ -607,6 +783,10 @@ export default memo(withGlobal<OwnProps>((global): StateProps => {
     isBiometricAuthEnabled: !!authConfig && authConfig.kind !== 'password',
     isPasswordPresent,
     isHardwareAccount,
+    currentVersion,
+    versions,
+    isCopyStorageEnabled,
+    supportAccountsCount,
   };
 })(Settings));
 

@@ -3,10 +3,11 @@ import React, {
 } from '../../../../lib/teact/teact';
 import { getActions, withGlobal } from '../../../../global';
 
-import type { Account } from '../../../../global/types';
+import { type Account } from '../../../../global/types';
 
 import { selectNetworkAccounts } from '../../../../global/selectors';
 import buildClassName from '../../../../util/buildClassName';
+import { vibrate } from '../../../../util/capacitor';
 import captureEscKeyListener from '../../../../util/captureEscKeyListener';
 import { shortenAddress } from '../../../../util/shortenAddress';
 import trapFocus from '../../../../util/trapFocus';
@@ -15,6 +16,7 @@ import useFlag from '../../../../hooks/useFlag';
 import useFocusAfterAnimation from '../../../../hooks/useFocusAfterAnimation';
 import useLang from '../../../../hooks/useLang';
 import useLastCallback from '../../../../hooks/useLastCallback';
+import useQrScannerSupport from '../../../../hooks/useQrScannerSupport';
 import useShowTransition from '../../../../hooks/useShowTransition';
 
 import Button from '../../../ui/Button';
@@ -29,15 +31,17 @@ interface OwnProps {
   menuButtonClassName?: string;
   noSettingsButton?: boolean;
   noAccountSelector?: boolean;
-  onQrScanPress?: NoneToVoidFunction;
+  isInsideSticky?: boolean;
 }
 
 interface StateProps {
   currentAccountId: string;
   currentAccount?: Account;
   accounts?: Record<string, Account>;
+  shouldForceAccountEdit?: boolean;
 }
 
+const HARDWARE_ACCOUNT_ADDRESS_SHIFT = 3;
 const ACCOUNT_ADDRESS_SHIFT = 4;
 const ACCOUNTS_AMOUNT_FOR_COMPACT_DIALOG = 3;
 
@@ -52,10 +56,11 @@ function AccountSelector({
   noSettingsButton,
   noAccountSelector,
   accounts,
-  onQrScanPress,
+  isInsideSticky,
+  shouldForceAccountEdit,
 }: OwnProps & StateProps) {
   const {
-    switchAccount, renameAccount, openAddAccountModal, openSettings,
+    switchAccount, renameAccount, openAddAccountModal, openSettings, requestOpenQrScanner,
   } = getActions();
 
   // eslint-disable-next-line no-null/no-null
@@ -65,12 +70,15 @@ function AccountSelector({
 
   const lang = useLang();
   const [isOpen, openAccountSelector, closeAccountSelector] = useFlag(false);
-  const [isEdit, openEdit, closeEdit] = useFlag(false);
+  const [isEdit, openEdit, closeEdit] = useFlag(shouldForceAccountEdit);
   const { shouldRender, transitionClassNames } = useShowTransition(isOpen && !isEdit, undefined, undefined, 'slow');
   const [inputValue, setInputValue] = useState<string>(currentAccount?.title || '');
 
+  const isQrScannerSupported = useQrScannerSupport();
+
+  const noSettingsOrQrSupported = noSettingsButton || (isInsideSticky && isQrScannerSupported);
+
   const accountsAmount = useMemo(() => Object.keys(accounts || {}).length, [accounts]);
-  const shouldRenderQrScannerButton = Boolean(onQrScanPress);
 
   useEffect(() => {
     if (isOpen && forceClose) {
@@ -99,6 +107,7 @@ function AccountSelector({
   };
 
   const handleSwitchAccount = (value: string) => {
+    vibrate();
     closeAccountSelector();
     switchAccount({ accountId: value });
   };
@@ -116,6 +125,7 @@ function AccountSelector({
   });
 
   const handleAddWalletClick = useLastCallback(() => {
+    vibrate();
     closeAccountSelector();
     openAddAccountModal();
   });
@@ -126,6 +136,11 @@ function AccountSelector({
     } else {
       setInputValue(e.currentTarget.value);
     }
+  });
+
+  const handleQrScanClick = useLastCallback(() => {
+    closeAccountSelector();
+    requestOpenQrScanner();
   });
 
   function renderButton(accountId: string, address: string, isHardware?: boolean, title?: string) {
@@ -141,7 +156,11 @@ function AccountSelector({
         <div className={styles.accountAddressBlock}>
           {isHardware && <i className="icon-ledger" aria-hidden />}
           <span>
-            {shortenAddress(address, ACCOUNT_ADDRESS_SHIFT)}
+            {shortenAddress(
+              address,
+              isHardware ? HARDWARE_ACCOUNT_ADDRESS_SHIFT : ACCOUNT_ADDRESS_SHIFT,
+              ACCOUNT_ADDRESS_SHIFT,
+            )}
           </span>
         </div>
 
@@ -162,12 +181,12 @@ function AccountSelector({
   const accountTitleClassName = buildClassName(
     styles.accountTitle,
     accountClassName,
-    shouldRenderQrScannerButton && !noSettingsButton && styles.accountTitleShort,
+    isQrScannerSupported && !noSettingsOrQrSupported && styles.accountTitleShort,
   );
   const settingsButtonClassName = buildClassName(
     styles.menuButton,
     menuButtonClassName,
-    shouldRenderQrScannerButton && styles.menuButtonFirst,
+    isQrScannerSupported && styles.menuButtonFirst,
   );
 
   function renderCurrentAccount() {
@@ -175,10 +194,13 @@ function AccountSelector({
       <>
         {!noAccountSelector && (
           <div className={accountTitleClassName} onClick={handleOpenAccountSelector}>
-            {currentAccount?.title || shortenAddress(currentAccount?.address || '')}
+            <span className={styles.accountTitleInner}>
+              {currentAccount?.title || shortenAddress(currentAccount?.address || '')}
+            </span>
+            <i className={buildClassName('icon icon-caret-down', styles.arrowIcon)} aria-hidden />
           </div>
         )}
-        {!noSettingsButton && (
+        {!noSettingsOrQrSupported && (
           <Button
             className={settingsButtonClassName}
             isText
@@ -190,14 +212,14 @@ function AccountSelector({
             <i className="icon-cog" aria-hidden />
           </Button>
         )}
-        {shouldRenderQrScannerButton && (
+        {isQrScannerSupported && (
           <Button
             className={buildClassName(styles.menuButton, menuButtonClassName)}
             isText
             isSimple
             kind="transparent"
             ariaLabel={lang('Scan QR Code')}
-            onClick={onQrScanPress}
+            onClick={handleQrScanClick}
           >
             <i className="icon-qr-scanner" aria-hidden />
           </Button>
@@ -224,7 +246,6 @@ function AccountSelector({
   function renderAccountsChooser() {
     const dialogFullClassName = buildClassName(
       styles.dialog,
-      'custom-scroll',
       accountsAmount <= ACCOUNTS_AMOUNT_FOR_COMPACT_DIALOG && styles.dialog_compact,
     );
 
@@ -267,6 +288,7 @@ export default memo(withGlobal<OwnProps>(
       currentAccountId: global.currentAccountId!,
       currentAccount: accounts?.[global.currentAccountId!],
       accounts,
+      shouldForceAccountEdit: global.shouldForceAccountEdit,
     };
   },
   (global, _, stickToFirst) => stickToFirst(global.currentAccountId),

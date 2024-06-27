@@ -1,77 +1,79 @@
-import type { ApiNetwork, ApiSwapAsset, ApiTxIdBySlug } from '../../api/types';
+import type {
+  ApiBalanceBySlug, ApiNetwork, ApiSwapAsset, ApiTxIdBySlug,
+} from '../../api/types';
 import type {
   Account,
   AccountSettings,
   AccountState,
   GlobalState,
+  StakingStatus,
   UserSwapToken,
   UserToken,
 } from '../types';
 
-import { TON_TOKEN_SLUG } from '../../config';
+import { MYCOIN_SLUG, MYCOIN_SLUG_TESTNET, TONCOIN_SLUG } from '../../config';
 import { parseAccountId } from '../../util/account';
+import { toBig } from '../../util/decimals';
 import { findLast, mapValues } from '../../util/iteratees';
 import memoized from '../../util/memoized';
 import { round } from '../../util/round';
-import { bigStrToHuman, getIsSwapId, getIsTxIdLocal } from '../helpers';
+import { getIsSwapId, getIsTxIdLocal } from '../helpers';
+
+const HIDDEN_TOKENS_COST = 0.01;
 
 export function selectHasSession(global: GlobalState) {
   return Boolean(global.currentAccountId);
 }
 
 const selectAccountTokensMemoized = memoized((
-  balancesBySlug: Record<string, string>,
+  balancesBySlug: ApiBalanceBySlug,
   tokenInfo: GlobalState['tokenInfo'],
   accountSettings: AccountSettings,
   isSortByValueEnabled: boolean = false,
-  areTokensWithNoBalanceHidden: boolean = false,
-  areTokensWithNoPriceHidden: boolean = false,
+  areTokensWithNoCostHidden: boolean = false,
 ) => {
-  const getTotalValue = ({ price, amount }: UserToken) => price * amount;
-
   return Object
     .entries(balancesBySlug)
     .filter(([slug]) => (slug in tokenInfo.bySlug))
     .map(([slug, balance]) => {
       const {
-        symbol, name, image, decimals, cmcSlug, quote: {
-          price, percentChange24h, percentChange7d, percentChange30d, history7d, history24h, history30d,
+        symbol, name, image, decimals, cmcSlug, color, quote: {
+          price, percentChange24h, priceUsd,
         },
       } = tokenInfo.bySlug[slug];
-      const amount = bigStrToHuman(balance, decimals);
-      const isException = accountSettings.exceptionSlugs?.includes(slug);
-      let isDisabled = (areTokensWithNoPriceHidden && price === 0)
-        || (areTokensWithNoBalanceHidden && amount === 0);
 
-      if (isException) {
-        isDisabled = !isDisabled;
-      }
-
-      if (slug === TON_TOKEN_SLUG) {
-        isDisabled = false;
-      }
+      const balanceBig = toBig(balance, decimals);
+      const totalValue = balanceBig.mul(price).round(decimals).toString();
+      const hasCost = balanceBig.mul(priceUsd ?? 0).gte(HIDDEN_TOKENS_COST);
+      const isExcepted = accountSettings.exceptionSlugs?.includes(slug);
+      const isMycoinWithBalance = slug === MYCOIN_SLUG && balance;
+      const isDisabled = !(
+        slug === TONCOIN_SLUG
+        || (areTokensWithNoCostHidden && hasCost && !isExcepted)
+        || (areTokensWithNoCostHidden && !hasCost && !isMycoinWithBalance && isExcepted)
+        || (areTokensWithNoCostHidden && !hasCost && isMycoinWithBalance && !isExcepted)
+        || (!areTokensWithNoCostHidden && !isExcepted)
+      );
 
       return {
         symbol,
         slug,
-        amount,
+        amount: balance,
         name,
         image,
         price,
+        priceUsd,
         decimals,
         change24h: round(percentChange24h / 100, 4),
-        change7d: round(percentChange7d / 100, 4),
-        change30d: round(percentChange30d / 100, 4),
-        history24h,
-        history7d,
-        history30d,
         isDisabled,
         cmcSlug,
+        totalValue,
+        color,
       } as UserToken;
     })
     .sort((tokenA, tokenB) => {
       if (isSortByValueEnabled) {
-        return getTotalValue(tokenB) - getTotalValue(tokenA);
+        return Number(tokenB.totalValue) - Number(tokenA.totalValue);
       }
 
       if (!accountSettings.orderedSlugs) {
@@ -85,40 +87,53 @@ const selectAccountTokensMemoized = memoized((
 });
 
 export function selectCurrentAccountTokens(global: GlobalState) {
-  const balancesBySlug = selectCurrentAccountState(global)?.balances?.bySlug;
+  return selectAccountTokens(global, global.currentAccountId!);
+}
+
+export function selectCurrentToncoinBalance(global: GlobalState) {
+  return selectCurrentAccountState(global)?.balances?.bySlug[TONCOIN_SLUG] ?? 0n;
+}
+
+export function selectAccountTokens(global: GlobalState, accountId: string) {
+  const balancesBySlug = selectAccountState(global, accountId)?.balances?.bySlug;
   if (!balancesBySlug || !global.tokenInfo) {
     return undefined;
   }
 
-  const accountSettings = selectAccountSettings(global, global.currentAccountId!) ?? {};
-  const { areTokensWithNoBalanceHidden, areTokensWithNoPriceHidden, isSortByValueEnabled } = global.settings;
+  const accountSettings = selectAccountSettings(global, accountId) ?? {};
+  const { areTokensWithNoCostHidden, isSortByValueEnabled } = global.settings;
 
   return selectAccountTokensMemoized(
     balancesBySlug,
     global.tokenInfo,
     accountSettings,
     isSortByValueEnabled,
-    areTokensWithNoBalanceHidden,
-    areTokensWithNoPriceHidden,
+    areTokensWithNoCostHidden,
   );
 }
 
 function createTokenList(
   swapTokenInfo: GlobalState['swapTokenInfo'],
-  balancesBySlug: Record<string, string>,
+  balancesBySlug: ApiBalanceBySlug,
   sortFn: (tokenA: ApiSwapAsset, tokenB: ApiSwapAsset) => number,
   filterFn?: (token: ApiSwapAsset) => boolean,
 ): UserSwapToken[] {
   return Object.entries(swapTokenInfo.bySlug)
     .filter(([, token]) => !filterFn || filterFn(token))
     .map(([slug, {
-      symbol, name, image, decimals, keywords, blockchain, contract, isPopular,
+      symbol, name, image,
+      decimals, keywords, blockchain,
+      contract, isPopular, color, price = 0, priceUsd = 0,
     }]) => {
-      const amount = bigStrToHuman(balancesBySlug[slug] ?? '0', decimals);
+      const amount = balancesBySlug[slug] ?? 0n;
+      const totalValue = toBig(amount, decimals).mul(price).toString();
+
       return {
         symbol,
         slug,
         amount,
+        price,
+        priceUsd,
         name,
         image,
         decimals,
@@ -128,18 +143,21 @@ function createTokenList(
         keywords,
         blockchain,
         contract,
+        totalValue,
+        color,
       } satisfies UserSwapToken;
     })
     .sort(sortFn);
 }
 
 const selectPopularTokensMemoized = memoized(
-  (balancesBySlug: Record<string, string>, swapTokenInfo: GlobalState['swapTokenInfo']) => {
+  (balancesBySlug: ApiBalanceBySlug, swapTokenInfo: GlobalState['swapTokenInfo']) => {
     const popularTokenOrder = [
       'TON',
+      'USD₮',
+      'USDT',
       'BTC',
       'ETH',
-      'USDT',
       'jUSDT',
       'jWBTC',
     ];
@@ -157,7 +175,7 @@ const selectPopularTokensMemoized = memoized(
 );
 
 const selectSwapTokensMemoized = memoized(
-  (balancesBySlug: Record<string, string>, swapTokenInfo: GlobalState['swapTokenInfo']) => {
+  (balancesBySlug: ApiBalanceBySlug, swapTokenInfo: GlobalState['swapTokenInfo']) => {
     const sortFn = (tokenA: ApiSwapAsset, tokenB: ApiSwapAsset) => (
       tokenA.name.trim().toLowerCase().localeCompare(tokenB.name.trim().toLowerCase())
     );
@@ -166,21 +184,19 @@ const selectSwapTokensMemoized = memoized(
 );
 
 const selectAccountTokensForSwapMemoized = memoized((
-  balancesBySlug: Record<string, string>,
+  balancesBySlug: ApiBalanceBySlug,
   tokenInfo: GlobalState['tokenInfo'],
   swapTokenInfo: GlobalState['swapTokenInfo'],
   accountSettings: AccountSettings,
   isSortByValueEnabled = false,
-  areTokensWithNoBalanceHidden = false,
-  areTokensWithNoPriceHidden = false,
+  areTokensWithNoCostHidden = false,
 ) => {
   return selectAccountTokensMemoized(
     balancesBySlug,
     tokenInfo,
     accountSettings,
     isSortByValueEnabled,
-    areTokensWithNoBalanceHidden,
-    areTokensWithNoPriceHidden,
+    areTokensWithNoCostHidden,
   ).filter((token) => token.slug in swapTokenInfo.bySlug && !token.isDisabled);
 });
 
@@ -191,7 +207,7 @@ export function selectAvailableUserForSwapTokens(global: GlobalState) {
   }
 
   const accountSettings = selectAccountSettings(global, global.currentAccountId!) ?? {};
-  const { areTokensWithNoBalanceHidden, areTokensWithNoPriceHidden, isSortByValueEnabled } = global.settings;
+  const { areTokensWithNoCostHidden, isSortByValueEnabled } = global.settings;
 
   return selectAccountTokensForSwapMemoized(
     balancesBySlug,
@@ -199,8 +215,7 @@ export function selectAvailableUserForSwapTokens(global: GlobalState) {
     global.swapTokenInfo,
     accountSettings,
     isSortByValueEnabled,
-    areTokensWithNoBalanceHidden,
-    areTokensWithNoPriceHidden,
+    areTokensWithNoCostHidden,
   );
 }
 
@@ -228,7 +243,7 @@ export function selectSwapTokens(global: GlobalState) {
 export function selectIsNewWallet(global: GlobalState) {
   const tokens = selectCurrentAccountTokens(global);
 
-  return tokens?.length === 0 || (tokens?.length === 1 && tokens[0].amount === 0);
+  return tokens?.length === 0 || (tokens?.length === 1 && tokens[0].amount === 0n);
 }
 
 export function selectAccounts(global: GlobalState) {
@@ -354,4 +369,56 @@ export function selectLocalTransactions(global: GlobalState, accountId: string) 
 
 export function selectIsPasswordPresent(global: GlobalState) {
   return !!selectFirstNonHardwareAccount(global);
+}
+
+export function selectAccountIdByAddress(global: GlobalState, address: string): string | undefined {
+  const accounts = selectAccounts(global);
+
+  if (!accounts) return undefined;
+
+  const requiredAccount = Object.entries(accounts)
+    .find(([accountId, account]) => (account.address === address ? accountId : undefined));
+
+  return requiredAccount?.[0];
+}
+
+export function selectTokenAddress(global: GlobalState, slug: string) {
+  if (slug === TONCOIN_SLUG) return undefined;
+  return Object.values(global.tokenInfo.bySlug)
+    .find((token) => slug === token.slug)!
+    .minterAddress!;
+}
+
+export function selectCurrentAccountStakingStatus(global: GlobalState): StakingStatus | undefined {
+  const accountState = selectCurrentAccountState(global);
+
+  return accountState?.staking?.balance
+    ? accountState.staking.isUnstakeRequested
+      ? 'unstakeRequested'
+      : 'active'
+    : undefined;
+}
+
+// Slow, not to be used in `withGlobal`
+export function selectVestingPartsReadyToUnfreeze(global: GlobalState, accountId: string) {
+  const vesting = selectAccountState(global, accountId)?.vesting?.info || [];
+
+  return vesting.reduce((acc, currentVesting) => {
+    currentVesting.parts.forEach((part) => {
+      if (part.status === 'ready') {
+        acc.push({
+          id: currentVesting.id,
+          partId: part.id,
+        });
+      }
+    });
+
+    return acc;
+  }, [] as { id: number; partId: number }[]);
+}
+
+export function selectMycoin(global: GlobalState) {
+  const { isTestnet } = global.settings;
+
+  return global.tokenInfo.bySlug[isTestnet ? MYCOIN_SLUG_TESTNET : MYCOIN_SLUG];
 }

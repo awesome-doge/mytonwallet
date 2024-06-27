@@ -6,12 +6,12 @@ import { getActions, withGlobal } from '../../global';
 import type { ApiStakingHistory } from '../../api/types';
 import type { UserToken } from '../../global/types';
 
-import { TON_SYMBOL, TON_TOKEN_SLUG } from '../../config';
+import { TON_SYMBOL, TONCOIN_SLUG } from '../../config';
 import { selectCurrentAccountState, selectCurrentAccountTokens } from '../../global/selectors';
 import buildClassName from '../../util/buildClassName';
 import { formatRelativeHumanDateTime } from '../../util/dateFormat';
+import { toBig, toDecimal } from '../../util/decimals';
 import { formatCurrency } from '../../util/formatNumber';
-import { round } from '../../util/round';
 
 import useForceUpdate from '../../hooks/useForceUpdate';
 import useInterval from '../../hooks/useInterval';
@@ -36,9 +36,9 @@ interface OwnProps {
 }
 
 interface StateProps {
-  amount: number;
+  amount: bigint;
   apyValue: number;
-  totalProfit: number;
+  totalProfit: bigint;
   stakingHistory?: ApiStakingHistory;
   tokens?: UserToken[];
   isUnstakeRequested?: boolean;
@@ -69,7 +69,7 @@ function StakingInfoContent({
     shouldRender: shouldRenderSpinner,
     transitionClassNames: spinnerClassNames,
   } = useShowTransition(isLoading && isActive);
-  const tonToken = useMemo(() => tokens?.find(({ slug }) => slug === TON_TOKEN_SLUG)!, [tokens]);
+  const tonToken = useMemo(() => tokens?.find(({ slug }) => slug === TONCOIN_SLUG)!, [tokens]);
   const forceUpdate = useForceUpdate();
   const { height } = useWindowSize();
 
@@ -91,16 +91,22 @@ function StakingInfoContent({
     startStaking({ isUnstaking: true });
   });
 
-  const stakingResult = round(amount, STAKING_DECIMAL);
-  const balanceResult = round(amount + (amount / 100) * apyValue, STAKING_DECIMAL);
+  const stakingResult = toBig(amount).round(STAKING_DECIMAL).toString();
+  const balanceResult = toBig(amount).mul((apyValue / 100) + 1).round(STAKING_DECIMAL).toString();
 
   function renderUnstakeDescription() {
     return (
       <div className={buildClassName(styles.unstakeTime, styles.unstakeTime_purple)}>
         <i className={buildClassName(styles.unstakeTimeIcon, 'icon-clock')} aria-hidden />
-        {Boolean(endOfStakingCycle) && lang('$unstaking_when_receive', {
-          time: <strong>{formatRelativeHumanDateTime(lang.code, endOfStakingCycle)}</strong>,
-        })}
+        <div>
+          {Boolean(endOfStakingCycle) && lang('$unstaking_when_receive', {
+            time: (
+              <strong>
+                {formatRelativeHumanDateTime(lang.code, endOfStakingCycle)}
+              </strong>
+            ),
+          })}
+        </div>
       </div>
     );
   }
@@ -112,7 +118,7 @@ function StakingInfoContent({
           {lang('$total', {
             value: (
               <span className={styles.historyTotalValue}>
-                {formatCurrency(totalProfit, TON_SYMBOL)}
+                {formatCurrency(toDecimal(totalProfit), TON_SYMBOL)}
               </span>
             ),
           })}
@@ -211,9 +217,9 @@ export default memo(withGlobal<OwnProps>((global): StateProps => {
   const accountState = selectCurrentAccountState(global);
 
   return {
-    amount: accountState?.staking?.balance || 0,
+    amount: accountState?.staking?.balance || 0n,
     apyValue: accountState?.staking?.apy || 0,
-    totalProfit: accountState?.staking?.totalProfit ?? 0,
+    totalProfit: accountState?.staking?.totalProfit ?? 0n,
     stakingHistory: accountState?.stakingHistory,
     tokens: selectCurrentAccountTokens(global),
     isUnstakeRequested: accountState?.staking?.isUnstakeRequested,

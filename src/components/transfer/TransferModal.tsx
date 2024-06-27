@@ -6,10 +6,11 @@ import { getActions, withGlobal } from '../../global';
 import type { GlobalState, HardwareConnectState, UserToken } from '../../global/types';
 import { TransferState } from '../../global/types';
 
-import { IS_CAPACITOR } from '../../config';
+import { IS_CAPACITOR, NFT_BATCH_SIZE } from '../../config';
 import { selectCurrentAccountState, selectCurrentAccountTokens } from '../../global/selectors';
 import buildClassName from '../../util/buildClassName';
 import captureKeyboardListeners from '../../util/captureKeyboardListeners';
+import { toDecimal } from '../../util/decimals';
 import { formatCurrency } from '../../util/formatNumber';
 import resolveModalTransitionName from '../../util/resolveModalTransitionName';
 import { shortenAddress } from '../../util/shortenAddress';
@@ -30,14 +31,11 @@ import Transition from '../ui/Transition';
 import TransferComplete from './TransferComplete';
 import TransferConfirm from './TransferConfirm';
 import TransferInitial from './TransferInitial';
+import TransferMultiNftProcess from './TransferMultiNftProcess';
 import TransferPassword from './TransferPassword';
 
 import modalStyles from '../ui/Modal.module.scss';
 import styles from './Transfer.module.scss';
-
-interface OwnProps {
-  onQrScanPress?: NoneToVoidFunction;
-}
 
 interface StateProps {
   currentTransfer: GlobalState['currentTransfer'];
@@ -61,8 +59,10 @@ function TransferModal({
     isLoading,
     txId,
     tokenSlug,
-  }, tokens, savedAddresses, hardwareState, isLedgerConnected, isTonAppConnected, onQrScanPress,
-}: OwnProps & StateProps) {
+    nfts,
+    sentNftsCount,
+  }, tokens, savedAddresses, hardwareState, isLedgerConnected, isTonAppConnected,
+}: StateProps) {
   const {
     submitTransferConfirm,
     submitTransferPassword,
@@ -78,9 +78,11 @@ function TransferModal({
 
   const { screenHeight } = useWindowSize();
   const selectedToken = useMemo(() => tokens?.find((token) => token.slug === tokenSlug), [tokenSlug, tokens]);
+  const decimals = selectedToken?.decimals;
   const [renderedTokenBalance, setRenderedTokenBalance] = useState(selectedToken?.amount);
   const renderedTransactionAmount = usePrevious(amount, true);
   const symbol = selectedToken?.symbol || '';
+  const isNftTransfer = Boolean(nfts?.length);
 
   const { renderingKey, nextKey, updateNextKey } = useModalTransitionKeys(state, isOpen);
 
@@ -128,18 +130,26 @@ function TransferModal({
   });
 
   function renderTransferShortInfo() {
-    const logoPath = selectedToken?.image || ASSET_LOGO_PATHS[symbol.toLowerCase() as keyof typeof ASSET_LOGO_PATHS];
     const transferInfoClassName = buildClassName(
       styles.transferShortInfo,
       !IS_CAPACITOR && styles.transferShortInfoInsidePasswordForm,
     );
+    const logoPath = isNftTransfer
+      ? nfts![0]?.thumbnail
+      : selectedToken?.image || ASSET_LOGO_PATHS[symbol.toLowerCase() as keyof typeof ASSET_LOGO_PATHS];
 
     return (
       <div className={transferInfoClassName}>
-        <img src={logoPath} alt={symbol} className={styles.tokenIcon} />
-        <span>
+        {logoPath && <img src={logoPath} alt={symbol} className={styles.tokenIcon} />}
+        <span className={styles.transferShortInfoText}>
           {lang('%amount% to %address%', {
-            amount: <span className={styles.bold}>{formatCurrency(amount!, symbol)}</span>,
+            amount: (
+              <span className={styles.bold}>
+                {isNftTransfer
+                  ? (nfts!.length > 1 ? lang('%amount% NFTs', { amount: nfts!.length }) : nfts![0]?.name || 'NFT')
+                  : formatCurrency(toDecimal(amount!, decimals), symbol)}
+              </span>
+            ),
             address: <span className={styles.bold}>{shortenAddress(toAddress!)}</span>,
           })}
         </span>
@@ -153,8 +163,8 @@ function TransferModal({
       case TransferState.Initial:
         return (
           <>
-            <ModalHeader title={lang('Send')} onClose={handleModalCloseWithReset} />
-            <TransferInitial onQrScanPress={onQrScanPress} />
+            <ModalHeader title={lang(isNftTransfer ? 'Send NFT' : 'Send')} onClose={handleModalCloseWithReset} />
+            <TransferInitial />
           </>
         );
       case TransferState.Confirm:
@@ -162,6 +172,7 @@ function TransferModal({
           <TransferConfirm
             isActive={isActive}
             symbol={symbol}
+            decimals={selectedToken?.decimals}
             savedAddresses={savedAddresses}
             onBack={isPortrait ? handleBackClick : handleModalClose}
             onClose={handleModalCloseWithReset}
@@ -200,9 +211,10 @@ function TransferModal({
           />
         );
       case TransferState.Complete:
-        return (
+        return (nfts?.length || 0) <= NFT_BATCH_SIZE ? (
           <TransferComplete
             isActive={isActive}
+            nfts={nfts}
             amount={renderedTransactionAmount}
             symbol={symbol}
             balance={renderedTokenBalance}
@@ -213,6 +225,14 @@ function TransferModal({
             toAddress={toAddress}
             comment={comment}
             onInfoClick={handleTransactionInfoClick}
+            onClose={handleModalCloseWithReset}
+            decimals={decimals}
+          />
+        ) : (
+          <TransferMultiNftProcess
+            nfts={nfts!}
+            sentNftsCount={sentNftsCount}
+            toAddress={toAddress}
             onClose={handleModalCloseWithReset}
           />
         );
@@ -243,7 +263,7 @@ function TransferModal({
   );
 }
 
-export default memo(withGlobal<OwnProps>((global): StateProps => {
+export default memo(withGlobal((global): StateProps => {
   const accountState = selectCurrentAccountState(global);
 
   const {

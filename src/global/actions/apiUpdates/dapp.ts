@@ -1,24 +1,20 @@
-import { DappConnectState, TransferState } from '../../types';
+import { TransferState } from '../../types';
 
-import { TON_TOKEN_SLUG } from '../../../config';
+import { TONCOIN_SLUG } from '../../../config';
+import { processDeeplink } from '../../../util/deeplink';
+import { callActionInNative } from '../../../util/multitab';
 import { IS_DELEGATING_BOTTOM_SHEET } from '../../../util/windowEnvironment';
-import { bigStrToHuman } from '../../helpers';
 import { addActionHandler, setGlobal } from '../../index';
 import {
   clearCurrentDappTransfer,
   clearCurrentSignature,
   clearCurrentTransfer,
+  clearDappConnectRequest,
   updateAccountState,
-  updateCurrentDappTransfer,
   updateCurrentSignature,
   updateCurrentTransfer,
-  updateDappConnectRequest,
 } from '../../reducers';
-import {
-  selectAccountState,
-} from '../../selectors';
-
-import { callActionInNative } from '../../../hooks/useDelegatedBottomSheet';
+import { selectAccountState } from '../../selectors';
 
 addActionHandler('apiUpdate', (global, actions, update) => {
   switch (update.type) {
@@ -38,11 +34,11 @@ addActionHandler('apiUpdate', (global, actions, update) => {
       global = updateCurrentTransfer(global, {
         state: TransferState.Confirm,
         toAddress,
-        amount: bigStrToHuman(amount), // TODO Unsafe?
+        amount,
         fee,
         comment,
         promiseId,
-        tokenSlug: TON_TOKEN_SLUG,
+        tokenSlug: TONCOIN_SLUG,
         rawPayload,
         parsedPayload,
         stateInit,
@@ -82,6 +78,13 @@ addActionHandler('apiUpdate', (global, actions, update) => {
       break;
     }
 
+    case 'dappConnectComplete': {
+      global = clearDappConnectRequest(global);
+      setGlobal(global);
+
+      break;
+    }
+
     case 'updateActiveDapp': {
       const { accountId, origin } = update;
 
@@ -107,18 +110,22 @@ addActionHandler('apiUpdate', (global, actions, update) => {
     }
 
     case 'dappLoading': {
-      const { connectionType } = update;
-
-      if (connectionType === 'connect') {
-        global = updateDappConnectRequest(global, {
-          state: DappConnectState.Info,
-        });
-      } else if (connectionType === 'sendTransaction') {
-        global = updateCurrentDappTransfer(global, {
-          state: TransferState.Initial,
-        });
+      if (IS_DELEGATING_BOTTOM_SHEET) {
+        callActionInNative('apiUpdateDappLoading', update);
       }
-      setGlobal(global);
+
+      actions.apiUpdateDappLoading(update);
+
+      break;
+    }
+
+    case 'dappCloseLoading': {
+      if (IS_DELEGATING_BOTTOM_SHEET) {
+        callActionInNative('apiUpdateDappCloseLoading');
+      }
+
+      actions.apiUpdateDappCloseLoading();
+
       break;
     }
 
@@ -132,23 +139,42 @@ addActionHandler('apiUpdate', (global, actions, update) => {
       break;
     }
 
+    case 'updateDapps': {
+      if (IS_DELEGATING_BOTTOM_SHEET) {
+        callActionInNative('getDapps');
+      }
+
+      actions.getDapps();
+      break;
+    }
+
     case 'prepareTransaction': {
       const {
         amount,
         toAddress,
         comment,
+        binPayload,
       } = update;
 
       global = clearCurrentTransfer(global);
       global = updateCurrentTransfer(global, {
         state: TransferState.Initial,
         toAddress,
-        amount: bigStrToHuman(amount || '0'),
+        amount: amount ?? 0n,
         comment,
-        tokenSlug: TON_TOKEN_SLUG,
+        tokenSlug: TONCOIN_SLUG,
+        binPayload,
       });
 
       setGlobal(global);
+      break;
+    }
+
+    case 'processDeeplink': {
+      const { url } = update;
+
+      processDeeplink(url);
+      break;
     }
   }
 });

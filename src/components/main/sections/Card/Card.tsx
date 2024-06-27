@@ -1,32 +1,41 @@
 import type { Ref } from 'react';
+import type { TeactNode } from '../../../../lib/teact/teact';
 import React, { memo, useEffect, useMemo } from '../../../../lib/teact/teact';
 import { getActions, withGlobal } from '../../../../global';
 
 import type { ApiBaseCurrency } from '../../../../api/types';
 import type { UserToken } from '../../../../global/types';
 
+import { IS_EXTENSION, TON_EXPLORER_NAME } from '../../../../config';
 import {
-  IS_CAPACITOR, TON_TOKEN_SLUG, TONSCAN_BASE_MAINNET_URL, TONSCAN_BASE_TESTNET_URL,
-} from '../../../../config';
-import { selectAccount, selectCurrentAccountState, selectCurrentAccountTokens } from '../../../../global/selectors';
+  selectAccount,
+  selectCurrentAccountState,
+  selectCurrentAccountTokens,
+  selectCurrentNetwork,
+} from '../../../../global/selectors';
 import buildClassName from '../../../../util/buildClassName';
-import { vibrateOnSuccess } from '../../../../util/capacitor';
 import captureEscKeyListener from '../../../../util/captureEscKeyListener';
 import { copyTextToClipboard } from '../../../../util/clipboard';
 import { formatCurrency, getShortCurrencySymbol } from '../../../../util/formatNumber';
 import { shortenAddress } from '../../../../util/shortenAddress';
-import { getTokenCardColor } from '../../helpers/card_colors';
+import { getTonExplorerAddressUrl } from '../../../../util/url';
+import { IS_IOS, IS_SAFARI } from '../../../../util/windowEnvironment';
 import { calculateFullBalance } from './helpers/calculateFullBalance';
 
 import useCurrentOrPrev from '../../../../hooks/useCurrentOrPrev';
+import useFlag from '../../../../hooks/useFlag';
 import useHistoryBack from '../../../../hooks/useHistoryBack';
 import useLang from '../../../../hooks/useLang';
 import useLastCallback from '../../../../hooks/useLastCallback';
 import useShowTransition from '../../../../hooks/useShowTransition';
+import useUpdateIndicator from '../../../../hooks/useUpdateIndicator';
 
 import AnimatedCounter from '../../../ui/AnimatedCounter';
 import Loading from '../../../ui/Loading';
+import LoadingDots from '../../../ui/LoadingDots';
+import Transition from '../../../ui/Transition';
 import AccountSelector from './AccountSelector';
+import CurrencySwitcher from './CurrencySwitcher';
 import TokenCard from './TokenCard';
 
 import styles from './Card.module.scss';
@@ -36,7 +45,6 @@ interface OwnProps {
   forceCloseAccountSelector?: boolean;
   onTokenCardClose: NoneToVoidFunction;
   onApyClick: NoneToVoidFunction;
-  onQrScanPress?: NoneToVoidFunction;
 }
 
 interface StateProps {
@@ -46,7 +54,8 @@ interface StateProps {
   currentTokenSlug?: string;
   isTestnet?: boolean;
   baseCurrency?: ApiBaseCurrency;
-  stakingBalance?: number;
+  stakingBalance?: bigint;
+  balanceUpdateStartedAt?: number;
 }
 
 function Card({
@@ -58,18 +67,26 @@ function Card({
   forceCloseAccountSelector,
   onTokenCardClose,
   onApyClick,
-  onQrScanPress,
   isTestnet,
   baseCurrency,
   stakingBalance,
+  balanceUpdateStartedAt,
 }: OwnProps & StateProps) {
   const { showNotification } = getActions();
 
   const lang = useLang();
-  const tonscanBaseUrl = isTestnet ? TONSCAN_BASE_TESTNET_URL : TONSCAN_BASE_MAINNET_URL;
-  const tonscanAddressUrl = `${tonscanBaseUrl}address/${address}`;
+  const addressUrl = getTonExplorerAddressUrl(address, isTestnet);
   const shortBaseSymbol = getShortCurrencySymbol(baseCurrency);
+  const tonExplorerTitle = useMemo(() => {
+    return (lang('View address on %ton_explorer_name%', {
+      ton_explorer_name: TON_EXPLORER_NAME,
+    }) as TeactNode[]
+    ).join('');
+  }, [lang]);
 
+  const isUpdating = useUpdateIndicator(balanceUpdateStartedAt);
+
+  const [isCurrencyMenuOpen, openCurrencyMenu, closeCurrencyMenu] = useFlag(false);
   const currentToken = useMemo(() => {
     return tokens ? tokens.find((token) => token.slug === currentTokenSlug) : undefined;
   }, [currentTokenSlug, tokens]);
@@ -78,13 +95,7 @@ function Card({
     shouldRender: shouldRenderTokenCard,
     transitionClassNames: tokenCardTransitionClassNames,
   } = useShowTransition(Boolean(currentTokenSlug), undefined, true);
-  const tokenCardColor = useMemo(() => {
-    if (!renderedToken || renderedToken.slug === TON_TOKEN_SLUG) {
-      return undefined;
-    }
 
-    return getTokenCardColor(renderedToken.slug);
-  }, [renderedToken]);
   const dappDomain = useMemo(() => {
     if (!activeDappOrigin) {
       return undefined;
@@ -106,9 +117,11 @@ function Card({
   }, [tokens, stakingBalance]);
 
   const {
-    shouldRender: shouldRenderDapp,
+    shouldRender: shouldRenderDappElement,
     transitionClassNames: dappClassNames,
   } = useShowTransition(Boolean(dappDomain));
+
+  const shouldRenderDapp = IS_EXTENSION && shouldRenderDappElement;
 
   useHistoryBack({
     isActive: Boolean(currentTokenSlug),
@@ -125,9 +138,6 @@ function Card({
 
     showNotification({ message: lang('Address was copied!') as string, icon: 'icon-copy' });
     void copyTextToClipboard(address);
-    if (IS_CAPACITOR) {
-      void vibrateOnSuccess();
-    }
   });
 
   const {
@@ -143,23 +153,40 @@ function Card({
   }
 
   function renderBalance() {
+    const iconCaretClassNames = buildClassName(
+      'icon',
+      'icon-caret-down',
+      primaryFractionPart || shortBaseSymbol.length > 1 ? styles.iconCaretFraction : styles.iconCaret,
+    );
+    const noAnimationCounter = !isUpdating || IS_SAFARI || IS_IOS;
     return (
       <>
-        <div className={styles.primaryValue}>
-          {shortBaseSymbol.length === 1 && shortBaseSymbol}
-          <AnimatedCounter text={primaryWholePart ?? ''} />
-          {primaryFractionPart && (
-            <span className={styles.primaryFractionPart}>
-              <AnimatedCounter text={`.${primaryFractionPart}`} />
-            </span>
-          )}
-          {shortBaseSymbol.length > 1 && (
-            <span className={styles.primaryFractionPart}>
+        <Transition activeKey={isUpdating ? 1 : 0} name="fade" shouldCleanup className={styles.balanceTransition}>
+          <div className={styles.primaryValue}>
+            <span
+              className={buildClassName(styles.currencySwitcher, isUpdating && 'glare-text')}
+              role="button"
+              tabIndex={0}
+              onClick={openCurrencyMenu}
+            >
+              {shortBaseSymbol.length === 1 && shortBaseSymbol}
+              <AnimatedCounter isDisabled={noAnimationCounter} text={primaryWholePart ?? ''} />
+              {primaryFractionPart && (
+                <span className={styles.primaryFractionPart}>
+                  <AnimatedCounter isDisabled={noAnimationCounter} text={`.${primaryFractionPart}`} />
+                </span>
+              )}
+              {shortBaseSymbol.length > 1 && (
+                <span className={styles.primaryFractionPart}>
                 &nbsp;{shortBaseSymbol}
+                </span>
+              )}
+              <i className={iconCaretClassNames} aria-hidden />
             </span>
-          )}
-        </div>
-        {primaryValue !== 0 && (
+          </div>
+        </Transition>
+        <CurrencySwitcher isOpen={isCurrencyMenuOpen} onClose={closeCurrencyMenu} />
+        {primaryValue !== '0' && (
           <div className={buildClassName(styles.change, changeClassName)}>
             {changePrefix}
             &thinsp;
@@ -174,8 +201,11 @@ function Card({
 
   return (
     <div className={styles.containerWrapper} ref={ref}>
+      <Transition activeKey={isUpdating ? 1 : 0} name="fade" shouldCleanup className={styles.loadingDotsContainer}>
+        {isUpdating ? <LoadingDots isActive isDoubled /> : undefined}
+      </Transition>
       <div className={buildClassName(styles.container, currentTokenSlug && styles.backstage)}>
-        <AccountSelector forceClose={forceCloseAccountSelector} canEdit onQrScanPress={onQrScanPress} />
+        <AccountSelector forceClose={forceCloseAccountSelector} canEdit />
         {shouldRenderDapp && (
           <div className={buildClassName(styles.dapp, dappClassNames)}>
             <i className={buildClassName(styles.dappIcon, 'icon-laptop')} aria-hidden />
@@ -194,13 +224,13 @@ function Card({
             <i className={buildClassName(styles.icon, 'icon-copy')} aria-hidden />
           </button>
           <a
-            href={tonscanAddressUrl}
-            className={styles.tonscanButton}
-            title={lang('View address on TON Explorer')}
+            href={addressUrl}
+            className={styles.tonExplorerButton}
+            title={tonExplorerTitle}
             target="_blank"
             rel="noreferrer noopener"
           >
-            <i className={buildClassName(styles.icon, 'icon-tonscan')} aria-hidden />
+            <i className={buildClassName(styles.icon, 'icon-tonexplorer-small')} aria-hidden />
           </a>
         </div>
       </div>
@@ -208,7 +238,7 @@ function Card({
         <TokenCard
           token={renderedToken!}
           classNames={tokenCardTransitionClassNames}
-          color={tokenCardColor}
+          isUpdating={isUpdating}
           onApyClick={onApyClick}
           onClose={onTokenCardClose}
         />
@@ -222,6 +252,9 @@ export default memo(
     (global): StateProps => {
       const { address } = selectAccount(global, global.currentAccountId!) || {};
       const accountState = selectCurrentAccountState(global);
+      const stakingBalance = selectCurrentNetwork(global) === 'mainnet'
+        ? accountState?.staking?.balance
+        : 0n;
 
       return {
         address,
@@ -230,7 +263,8 @@ export default memo(
         currentTokenSlug: accountState?.currentTokenSlug,
         isTestnet: global.settings.isTestnet,
         baseCurrency: global.settings.baseCurrency,
-        stakingBalance: accountState?.staking?.balance,
+        stakingBalance,
+        balanceUpdateStartedAt: global.balanceUpdateStartedAt,
       };
     },
     (global, _, stickToFirst) => stickToFirst(global.currentAccountId),

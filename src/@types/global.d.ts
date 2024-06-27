@@ -69,6 +69,7 @@ declare module '*.png';
 declare module '*.svg';
 declare module '*.tgs';
 declare module '*.wasm';
+declare module '*.mp3';
 
 declare module '*.txt' {
   const content: string;
@@ -105,6 +106,10 @@ interface IWebpWorker extends Worker {
   requests: Map<string, (value: PromiseLike<TEncodedImage>) => void>;
 }
 
+interface Window {
+  webkitAudioContext: typeof AudioContext;
+}
+
 interface Document {
   mozFullScreenElement: any;
   webkitFullscreenElement: any;
@@ -122,6 +127,10 @@ interface HTMLElement {
 interface Navigator {
   // PWA badging extensions https://w3c.github.io/badging/
   setAppBadge?(count: number): Promise<void>;
+  // https://wicg.github.io/ua-client-hints/#dictdef-uadatavalues
+  userAgentData?: {
+    platform: string;
+  };
 }
 
 // Fix to make Boolean() work as !!
@@ -162,3 +171,7 @@ interface FileSystemSyncAccessHandle {
 type FilesystemReadWriteOptions = {
   at: number;
 };
+
+interface Cordova {
+  InAppBrowser: InAppBrowser;
+}

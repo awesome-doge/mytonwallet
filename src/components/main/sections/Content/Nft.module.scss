@@ -93,53 +93,85 @@
 }
 
 .item {
+  cursor: var(--custom-cursor, pointer);
+
+  position: relative;
   z-index: 0;
 
   padding-bottom: 0.125rem;
 
   font-size: 0.9375rem;
   font-weight: 600;
-  text-decoration: none;
+
+  &,
+  &:hover,
+  &:focus,
+  &:active {
+    text-decoration: none;
+  }
 
   @media (hover: hover) {
     &:hover,
     &:focus {
-      text-decoration: none;
-
       .image {
         transform: scale(1.05);
       }
     }
   }
 
-  @media (pointer: coarse) {
-    &:active {
-      text-decoration: none;
+  &::before {
+    content: "";
 
-      .image {
-        transform: scale(1.05);
-      }
-    }
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    right: 1.875rem;
+    transform: translateY(0) scale(1);
+
+    width: 1.75rem;
+    height: 1.875rem;
+
+    opacity: 0;
+    background: url("../../../../assets/sale.svg") no-repeat;
+    background-size: contain;
+
+    transition: opacity 0.2s ease, transform 0.2s ease;
   }
 
   &_onSale {
     position: relative;
 
     &::before {
-      content: "";
+      opacity: 1;
+    }
 
-      position: absolute;
-      z-index: 1;
-      top: -0.125rem;
-      right: 0.75rem;
+    &:global(.ghost-target)::before {
+      transform: translateY(-15%) scale(0.8);
 
-      width: 1.75rem;
-      height: 2rem;
+      opacity: 0;
 
-      background: url("../../../../assets/sale.png") no-repeat;
-      background-size: contain;
+      transition: none;
     }
   }
+}
+
+.nonInteractive {
+  pointer-events: none;
+}
+
+.itemWithMenu {
+  z-index: 3;
+}
+
+.imageWrapper,
+.warning {
+  overflow: hidden;
+
+  aspect-ratio: 1;
+  width: 100%;
+  max-width: 100%;
+
+  border-radius: var(--border-radius-normal);
 }
 
 .imageWrapper {
@@ -147,15 +179,11 @@
   isolation: isolate;
   position: relative;
 
-  overflow: hidden;
   display: block !important;
 
-  aspect-ratio: 1;
-  width: 100%;
-  max-width: 100%;
   margin-bottom: 0.4375rem;
 
-  border-radius: var(--border-radius-tiny);
+  background: var(--color-blue-10o);
 
   @supports not (aspect-ratio: 1) {
     height: auto;
@@ -173,12 +201,40 @@
   height: 100%;
 
   object-fit: cover;
+  border-radius: var(--border-radius-normal);
 
   transition: transform 300ms;
 
   :global(html.animation-level-0) & {
     transition: none !important;
   }
+}
+
+.imageSelected {
+  transform: scale(0.86) !important;
+}
+
+.fullImage {
+  display: none;
+}
+
+.warning {
+  position: absolute;
+  top: 0;
+  left: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 1rem;
+
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--color-white);
+  text-align: center;
+
+  background: var(--color-tint);
 }
 
 .infoWrapper {
@@ -202,4 +258,27 @@
   line-height: 1;
   color: var(--color-gray-1);
   text-overflow: ellipsis;
+}
+
+.radio {
+  position: absolute;
+  z-index: 1;
+  top: 0.5rem;
+  right: 0.5rem;
+}
+
+.notcoinVoucherButton {
+  margin: 0.75rem auto;
+
+  background-color: black !important;
+
+  transition: opacity 250ms ease;
+
+  &:hover {
+    opacity: 0.8;
+  }
+}
+
+.notcoinVoucherIcon {
+  margin-right: 0.5rem;
 }

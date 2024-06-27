@@ -1,9 +1,7 @@
-import { randomBytes } from 'tweetnacl';
-
 import type { TokenBalanceParsed } from '../blockchains/ton/tokens';
 import type {
-  ApiActivity,
   ApiBackendStakingState,
+  ApiBalanceBySlug,
   ApiBaseCurrency,
   ApiBaseToken,
   ApiNftUpdate,
@@ -11,58 +9,70 @@ import type {
   ApiStakingState,
   ApiSwapAsset,
   ApiSwapHistoryItem,
-  ApiToken,
   ApiTokenPrice,
   ApiTransactionActivity,
   ApiTxIdBySlug,
+  ApiVestingInfo,
+  ApiWalletInfo,
   OnApiUpdate,
 } from '../types';
 
-import {
-  APP_ENV, APP_VERSION, DEFAULT_PRICE_CURRENCY, TON_TOKEN_SLUG,
-} from '../../config';
+import { DEFAULT_PRICE_CURRENCY, POPULAR_WALLET_VERSIONS, TONCOIN_SLUG } from '../../config';
 import { parseAccountId } from '../../util/account';
 import { areDeepEqual } from '../../util/areDeepEqual';
 import { compareActivities } from '../../util/compareActivities';
 import { buildCollectionByKey } from '../../util/iteratees';
 import { logDebugError } from '../../util/logs';
-import { pause } from '../../util/schedulers';
+import { pauseOrFocus } from '../../util/pauseOrFocus';
 import blockchains from '../blockchains';
-import { addKnownTokens, getKnownTokens } from '../blockchains/ton/tokens';
+import { addKnownToken, addKnownTokens, getKnownTokens } from '../blockchains/ton/tokens';
 import { fetchStoredAccount, updateStoredAccount } from '../common/accounts';
 import { tryUpdateKnownAddresses } from '../common/addresses';
 import { callBackendGet } from '../common/backend';
+import { getStakingCommonCache } from '../common/cache';
 import { isUpdaterAlive, resolveBlockchainKey } from '../common/helpers';
 import { txCallbacks } from '../common/txCallbacks';
-import { getEnvironment } from '../environment';
-import { storage } from '../storages';
-import { processNftUpdates, updateNfts } from './nfts';
+import { hexToBytes } from '../common/utils';
+import { AbortOperationError } from '../errors';
+import { processNftUpdates, updateAccountNfts } from './nfts';
+import { resolveDataPreloadPromise } from './preload';
 import { getBaseCurrency } from './prices';
-import { getBackendStakingState, getStakingCommonData, tryUpdateStakingCommonData } from './staking';
+import { getBackendStakingState, tryUpdateStakingCommonData } from './staking';
 import {
-  swapGetAssets, swapGetHistory, swapItemToActivity, swapReplaceTransactions,
+  swapGetAssets, swapGetHistory, swapItemToActivity, swapReplaceTransactionsByRanges,
 } from './swap';
+import { fetchVestings } from './vesting';
 
 type IsAccountActiveFn = (accountId: string) => boolean;
 
-const POLLING_INTERVAL = 1100; // 1.1 sec
-const BACKEND_POLLING_INTERVAL = 30000; // 30 sec
-const LONG_BACKEND_POLLING_INTERVAL = 60000; // 1 min
+type AccountBalanceCache = {
+  balance?: bigint;
+  tokenBalances?: ApiBalanceBySlug;
+};
+
+const SEC = 1000;
+const BALANCE_BASED_INTERVAL = 1.1 * SEC;
+const BALANCE_BASED_INTERVAL_WHEN_NOT_FOCUSED = 10 * SEC;
+const STAKING_INTERVAL = 5 * SEC;
+const STAKING_INTERVAL_WHEN_NOT_FOCUSED = 10 * SEC;
+const BACKEND_INTERVAL = 30 * SEC;
+const LONG_BACKEND_INTERVAL = 60 * SEC;
+const NFT_FULL_INTERVAL = 60 * SEC;
+const SWAP_POLLING_INTERVAL = 3 * SEC;
+const SWAP_POLLING_INTERVAL_WHEN_NOT_FOCUSED = 10 * SEC;
+const SWAP_FINISHED_STATUSES = new Set(['failed', 'completed', 'expired']);
+const VERSIONS_INTERVAL = 5 * 60 * SEC;
+const VERSIONS_INTERVAL_WHEN_NOT_FOCUSED = 15 * 60 * SEC;
+const VESTING_INTERVAL = 10 * SEC;
+const VESTING_INTERVAL_WHEN_NOT_FOCUSED = 60 * SEC;
+const INCORRECT_TIME_DIFF = 30 * SEC;
 
 const FIRST_TRANSACTIONS_LIMIT = 50;
-
-const NFT_FULL_POLLING_INTERVAL = 30000; // 30 sec
-const NFT_FULL_UPDATE_FREQUNCY = Math.round(NFT_FULL_POLLING_INTERVAL / POLLING_INTERVAL);
-const DOUBLE_CHECK_TOKENS_PAUSE = 30000; // 30 sec
-
-const SWAP_POLLING_INTERVAL = 3000; // 3 sec
-const SWAP_FINISHED_STATUSES = new Set(['failed', 'completed', 'expired']);
+const DOUBLE_CHECK_TOKENS_PAUSE = 30 * SEC;
 
 let onUpdate: OnApiUpdate;
 let isAccountActive: IsAccountActiveFn;
-let clientId: string | undefined;
 
-let preloadEnsurePromise: Promise<any>;
 const prices: {
   baseCurrency: ApiBaseCurrency;
   bySlug: Record<string, ApiTokenPrice>;
@@ -71,22 +81,22 @@ const prices: {
   bySlug: {},
 };
 let swapPollingAccountId: string | undefined;
-const lastBalanceCache: Record<string, {
-  balance?: string;
-  tokenBalances?: Record<string, string>;
-}> = {};
+const lastBalanceCache: Record<string, AccountBalanceCache> = {};
 
-export function initPolling(_onUpdate: OnApiUpdate, _isAccountActive: IsAccountActiveFn) {
+export async function initPolling(_onUpdate: OnApiUpdate, _isAccountActive: IsAccountActiveFn) {
   onUpdate = _onUpdate;
   isAccountActive = _isAccountActive;
 
-  preloadEnsurePromise = Promise.all([
+  await tryUpdatePrices();
+
+  Promise.allSettled([
     tryUpdateKnownAddresses(),
     tryUpdateTokens(_onUpdate),
     tryLoadSwapTokens(_onUpdate),
     tryUpdateStakingCommonData(),
-    tryUpdateRegion(_onUpdate),
-  ]);
+  ]).then(() => resolveDataPreloadPromise());
+
+  void tryUpdateConfig(_onUpdate);
 
   void setupBackendPolling();
   void setupLongBackendPolling();
@@ -100,16 +110,15 @@ function registerNewTokens(tokenBalances: TokenBalanceParsed[]) {
     if (token.slug in tokens) continue;
 
     areNewTokensFound = true;
-    tokens[token.slug] = {
+    addKnownToken({
       ...token,
       quote: prices.bySlug[token.slug] || {
+        slug: token.slug,
         price: 0.0,
-        percentChange1h: 0.0,
+        priceUsd: 0.0,
         percentChange24h: 0.0,
-        percentChange7d: 0.0,
-        percentChange30d: 0.0,
       },
-    } as ApiToken;
+    });
   }
 
   if (areNewTokensFound) {
@@ -129,116 +138,158 @@ export async function setupBalanceBasedPolling(accountId: string, newestTxIds: A
 
   let nftFromSec = Math.round(Date.now() / 1000);
   let nftUpdates: ApiNftUpdate[];
-  let i = 0;
+  let lastNftFullUpdate = 0;
   let doubleCheckTokensTime: number | undefined;
   let tokenBalances: TokenBalanceParsed[] | undefined;
 
   const localOnUpdate = onUpdate;
 
-  while (isUpdaterAlive(localOnUpdate) && isAccountActive(accountId)) {
-    try {
-      const walletInfo = await blockchain.getWalletInfo(network, address);
-      if (!isUpdaterAlive(localOnUpdate) || !isAccountActive(accountId)) return;
+  async function updateBalance(cache: AccountBalanceCache) {
+    const walletInfo = await blockchain.getWalletInfo(network, address);
+    const { balance, lastTxId } = walletInfo ?? {};
+    const isToncoinBalanceChanged = balance !== undefined && balance !== cache?.balance;
+    const balancesToUpdate: ApiBalanceBySlug = {};
 
-      const { balance, lastTxId } = walletInfo ?? {};
+    if (isToncoinBalanceChanged) {
+      balancesToUpdate[TONCOIN_SLUG] = balance;
 
-      // Full update NFTs every ~30 seconds
-      if (i % NFT_FULL_UPDATE_FREQUNCY === 0) {
-        const nfts = await blockchain.getAccountNfts(accountId).catch(logAndRescue);
-        if (!isUpdaterAlive(localOnUpdate) || !isAccountActive(accountId)) return;
+      lastBalanceCache[accountId] = {
+        ...lastBalanceCache[accountId],
+        balance,
+      };
+    }
 
-        if (nfts) {
-          nftFromSec = Math.round(Date.now() / 1000);
-          if (!isUpdaterAlive(localOnUpdate) || !isAccountActive(accountId)) return;
+    return {
+      lastTxId, isToncoinBalanceChanged, balancesToUpdate,
+    };
+  }
 
-          void updateNfts(accountId, nfts);
-        }
-      }
-
-      // Process TON balance
-      const cache = lastBalanceCache[accountId];
-      const changedTokenSlugs: string[] = [];
-      const isTonBalanceChanged = balance && balance !== cache?.balance;
-
-      const balancesToUpdate: Record<string, string> = {};
-
-      if (isTonBalanceChanged) {
-        balancesToUpdate[TON_TOKEN_SLUG] = balance;
-
-        lastBalanceCache[accountId] = {
-          ...lastBalanceCache[accountId],
-          balance,
-        };
-      }
-
-      // Fetch and process token balances
-      if (isTonBalanceChanged || (doubleCheckTokensTime && doubleCheckTokensTime < Date.now())) {
-        doubleCheckTokensTime = isTonBalanceChanged ? Date.now() + DOUBLE_CHECK_TOKENS_PAUSE : undefined;
-
-        tokenBalances = await blockchain.getAccountTokenBalances(accountId).catch(logAndRescue);
-
-        if (!isUpdaterAlive(localOnUpdate) || !isAccountActive(accountId)) return;
-
-        if (tokenBalances) {
-          registerNewTokens(tokenBalances);
-
-          tokenBalances.forEach(({ slug, balance: tokenBalance }) => {
-            const cachedBalance = cache?.tokenBalances && cache.tokenBalances[slug];
-            if (cachedBalance === tokenBalance) return;
-
-            changedTokenSlugs.push(slug);
-            balancesToUpdate[slug] = tokenBalance;
-          });
-
-          lastBalanceCache[accountId] = {
-            ...lastBalanceCache[accountId],
-            tokenBalances: Object.fromEntries(tokenBalances.map(
-              ({ slug, balance: tokenBalance }) => [slug, tokenBalance],
-            )),
-          };
-        }
-
-        if (Object.keys(balancesToUpdate).length > 0) {
-          onUpdate({
-            type: 'updateBalances',
-            accountId,
-            balancesToUpdate,
-          });
-        }
-      }
-
-      // Fetch transactions for tokens with a changed balance
-      if (isTonBalanceChanged || changedTokenSlugs.length) {
-        if (lastTxId) {
-          await blockchain.waitUntilTransactionAppears(network, address, lastTxId);
-        }
-
-        const newTxIds = await processNewActivities(accountId, newestTxIds, changedTokenSlugs, tokenBalances);
-        newestTxIds = { ...newestTxIds, ...newTxIds };
-      }
-
-      // Fetch NFT updates
-      if (isTonBalanceChanged) {
+  async function updateNfts(isToncoinBalanceChanged: boolean) {
+    if (Date.now() - lastNftFullUpdate < NFT_FULL_INTERVAL) {
+      // Partial update
+      if (isToncoinBalanceChanged) {
         const nftResult = await blockchain.getNftUpdates(accountId, nftFromSec).catch(logAndRescue);
-        if (!isUpdaterAlive(localOnUpdate) || !isAccountActive(accountId)) return;
+
+        throwErrorIfUpdaterNotAlive(localOnUpdate, accountId);
 
         if (nftResult) {
           [nftFromSec, nftUpdates] = nftResult;
           void processNftUpdates(accountId, nftUpdates);
         }
       }
+    } else {
+      // Full update
+      const nfts = await blockchain.getAccountNfts(accountId).catch(logAndRescue);
+      lastNftFullUpdate = Date.now();
 
-      if (isTonBalanceChanged && !isInitialized && await blockchain.isAddressInitialized(network, address)) {
+      throwErrorIfUpdaterNotAlive(localOnUpdate, accountId);
+
+      if (nfts) {
+        nftFromSec = Math.round(Date.now() / 1000);
+        void updateAccountNfts(accountId, nfts);
+      }
+    }
+  }
+
+  async function updateTokenBalances(
+    isToncoinBalanceChanged: boolean,
+    cache: AccountBalanceCache,
+    balancesToUpdate: ApiBalanceBySlug,
+  ) {
+    const changedTokenSlugs: string[] = [];
+
+    if (isToncoinBalanceChanged || (doubleCheckTokensTime && doubleCheckTokensTime < Date.now())) {
+      doubleCheckTokensTime = isToncoinBalanceChanged ? Date.now() + DOUBLE_CHECK_TOKENS_PAUSE : undefined;
+      tokenBalances = await blockchain.getAccountTokenBalances(accountId).catch(logAndRescue);
+
+      throwErrorIfUpdaterNotAlive(localOnUpdate, accountId);
+
+      if (tokenBalances) {
+        registerNewTokens(tokenBalances);
+
+        tokenBalances.forEach(({ slug, balance: tokenBalance }) => {
+          const cachedBalance = cache?.tokenBalances && cache.tokenBalances[slug];
+          if (cachedBalance === tokenBalance) return;
+
+          changedTokenSlugs.push(slug);
+          balancesToUpdate[slug] = tokenBalance;
+        });
+
+        lastBalanceCache[accountId] = {
+          ...lastBalanceCache[accountId],
+          tokenBalances: Object.fromEntries(tokenBalances.map(
+            ({ slug, balance: tokenBalance }) => [slug, tokenBalance],
+          )),
+        };
+      }
+
+      if (Object.keys(balancesToUpdate).length > 0) {
+        onUpdate({
+          type: 'updateBalances',
+          accountId,
+          balancesToUpdate,
+        });
+      }
+    }
+
+    onUpdate({ type: 'updatingStatus', kind: 'balance', isUpdating: false });
+
+    return changedTokenSlugs;
+  }
+
+  async function updateActivities(isToncoinBalanceChanged: boolean, changedTokenSlugs: string[], lastTxId?: string) {
+    if (isToncoinBalanceChanged || changedTokenSlugs.length) {
+      if (lastTxId) {
+        await blockchain.waitUntilTransactionAppears(network, address, lastTxId);
+      }
+
+      const newTxIds = await processNewActivities(accountId, newestTxIds, changedTokenSlugs, tokenBalances);
+      newestTxIds = { ...newestTxIds, ...newTxIds };
+    }
+
+    onUpdate({ type: 'updatingStatus', kind: 'activities', isUpdating: false });
+  }
+
+  while (isAlive(localOnUpdate, accountId)) {
+    try {
+      onUpdate({ type: 'updatingStatus', kind: 'activities', isUpdating: true });
+      onUpdate({ type: 'updatingStatus', kind: 'balance', isUpdating: true });
+
+      const cache = lastBalanceCache[accountId];
+
+      const {
+        lastTxId,
+        isToncoinBalanceChanged,
+        balancesToUpdate,
+      } = await updateBalance(cache);
+
+      throwErrorIfUpdaterNotAlive(localOnUpdate, accountId);
+
+      const changedTokenSlugs = await updateTokenBalances(isToncoinBalanceChanged, cache, balancesToUpdate);
+
+      await Promise.all([
+        updateActivities(isToncoinBalanceChanged, changedTokenSlugs, lastTxId),
+        updateNfts(isToncoinBalanceChanged),
+      ]);
+
+      if (isToncoinBalanceChanged && !isInitialized && await blockchain.isAddressInitialized(network, address)) {
         isInitialized = true;
         await updateStoredAccount(accountId, { isInitialized });
       }
-
-      i++;
     } catch (err) {
-      logDebugError('setupBalancePolling', err);
+      if (err instanceof AbortOperationError) {
+        return;
+      }
+      logDebugError('setupBalanceBasedPolling', err);
     }
 
-    await pause(POLLING_INTERVAL);
+    await pauseOrFocus(BALANCE_BASED_INTERVAL, BALANCE_BASED_INTERVAL_WHEN_NOT_FOCUSED);
+  }
+}
+
+function throwErrorIfUpdaterNotAlive(localOnUpdate: OnApiUpdate, accountId: string) {
+  if (!isAlive(localOnUpdate, accountId)) {
+    throw new AbortOperationError();
   }
 }
 
@@ -257,15 +308,13 @@ export async function setupStakingPolling(accountId: string) {
     stakingState: ApiStakingState;
   } | undefined;
 
-  while (isUpdaterAlive(localOnUpdate) && isAccountActive(accountId)) {
+  while (isAlive(localOnUpdate, accountId)) {
     try {
-      const stakingCommonData = getStakingCommonData();
+      const stakingCommonData = getStakingCommonCache();
       const backendStakingState = await getBackendStakingState(accountId);
-      const stakingState = await blockchain.getStakingState(
-        accountId, stakingCommonData, backendStakingState,
-      );
+      const stakingState = await blockchain.getStakingState(accountId, backendStakingState);
 
-      if (!isUpdaterAlive(localOnUpdate) || !isAccountActive(accountId)) return;
+      if (!isAlive(localOnUpdate, accountId)) return;
 
       const state = {
         stakingCommonData,
@@ -282,10 +331,10 @@ export async function setupStakingPolling(accountId: string) {
         });
       }
     } catch (err) {
-      logDebugError('setupBalancePolling', err);
+      logDebugError('setupStakingPolling', err);
     }
 
-    await pause(POLLING_INTERVAL);
+    await pauseOrFocus(STAKING_INTERVAL, STAKING_INTERVAL_WHEN_NOT_FOCUSED);
   }
 }
 
@@ -295,28 +344,24 @@ async function processNewActivities(
   tokenSlugs: string[],
   tokenBalances?: TokenBalanceParsed[],
 ): Promise<ApiTxIdBySlug> {
-  const blockchain = blockchains[resolveBlockchainKey(accountId)!];
+  const { network, blockchain } = parseAccountId(accountId);
+  const activeBlockchain = blockchains[blockchain];
 
-  let allTransactions: ApiTransactionActivity[] = [];
-  let allActivities: ApiActivity[] = [];
-
+  const chunks: ApiTransactionActivity[][] = [];
   const result: [string, string | undefined][] = [];
 
   // Process TON transactions first
   {
-    const slug = TON_TOKEN_SLUG;
+    const slug = TONCOIN_SLUG;
     let newestTxId = newestTxIds[slug];
 
-    const transactions = await blockchain.getTokenTransactionSlice(
+    const transactions = await activeBlockchain.getTokenTransactionSlice(
       accountId, slug, undefined, newestTxId, FIRST_TRANSACTIONS_LIMIT,
     );
-    const activities = await swapReplaceTransactions(accountId, transactions, slug);
 
     if (transactions.length) {
       newestTxId = transactions[0]!.txId;
-
-      allActivities = allActivities.concat(activities);
-      allTransactions = allTransactions.concat(transactions);
+      chunks.push(transactions);
     }
 
     result.push([slug, newestTxId]);
@@ -333,33 +378,36 @@ async function processNewActivities(
     });
   }
 
+  // Process token transactions
   await Promise.all(tokenSlugs.map(async (slug) => {
     let newestTxId = newestTxIds[slug];
 
-    const transactions = await blockchain.getTokenTransactionSlice(
+    const transactions = await activeBlockchain.getTokenTransactionSlice(
       accountId, slug, undefined, newestTxId, FIRST_TRANSACTIONS_LIMIT,
     );
-    const activities = await swapReplaceTransactions(accountId, transactions, slug);
 
     if (transactions.length) {
       newestTxId = transactions[0]!.txId;
-
-      allActivities = allActivities.concat(activities);
-      allTransactions = allTransactions.concat(transactions);
+      chunks.push(transactions);
     }
 
     result.push([slug, newestTxId]);
   }));
 
-  allTransactions.sort((a, b) => compareActivities(a, b, true));
+  const allTransactions = chunks.flat().sort(compareActivities);
 
-  allTransactions.forEach((transaction) => {
+  const isFirstRun = !Object.keys(newestTxIds).length;
+  const activities = await swapReplaceTransactionsByRanges(accountId, allTransactions, chunks, isFirstRun);
+
+  allTransactions.slice().reverse().forEach((transaction) => {
     txCallbacks.runCallbacks(transaction);
   });
 
+  await activeBlockchain.fixTokenActivitiesAddressForm(network, activities);
+
   onUpdate({
     type: 'newActivities',
-    activities: allActivities,
+    activities,
     accountId,
   });
 
@@ -370,10 +418,11 @@ export async function setupBackendPolling() {
   const localOnUpdate = onUpdate;
 
   while (isUpdaterAlive(localOnUpdate)) {
-    await pause(BACKEND_POLLING_INTERVAL);
+    await pauseOrFocus(BACKEND_INTERVAL);
     if (!isUpdaterAlive(localOnUpdate)) return;
 
     try {
+      await tryUpdatePrices(localOnUpdate);
       await tryUpdateTokens(localOnUpdate);
     } catch (err) {
       logDebugError('setupBackendPolling', err);
@@ -385,13 +434,33 @@ export async function setupLongBackendPolling() {
   const localOnUpdate = onUpdate;
 
   while (isUpdaterAlive(localOnUpdate)) {
-    await pause(LONG_BACKEND_POLLING_INTERVAL);
+    await pauseOrFocus(LONG_BACKEND_INTERVAL);
 
     await Promise.all([
       tryUpdateKnownAddresses(),
       tryUpdateStakingCommonData(),
-      tryUpdateRegion(localOnUpdate),
+      tryUpdateConfig(localOnUpdate),
     ]);
+  }
+}
+
+export async function tryUpdatePrices(localOnUpdate?: OnApiUpdate) {
+  if (!localOnUpdate) {
+    localOnUpdate = onUpdate;
+  }
+
+  try {
+    const baseCurrency = await getBaseCurrency();
+    const pricesData = await callBackendGet<Record<string, ApiTokenPrice>>('/prices/current', {
+      base: baseCurrency,
+    });
+
+    if (!isUpdaterAlive(localOnUpdate)) return;
+
+    prices.bySlug = buildCollectionByKey(Object.values(pricesData), 'slug');
+    prices.baseCurrency = baseCurrency;
+  } catch (err) {
+    logDebugError('tryUpdatePrices', err);
   }
 }
 
@@ -401,33 +470,11 @@ export async function tryUpdateTokens(localOnUpdate?: OnApiUpdate) {
   }
 
   try {
-    const baseCurrency = await getBaseCurrency();
-    const pricesHeaders: AnyLiteral = {
-      ...getEnvironment().apiHeaders,
-      'X-App-Version': APP_VERSION,
-      'X-App-ClientID': clientId ?? await getClientId(),
-      'X-App-Env': APP_ENV,
-    };
-
-    const [pricesData, tokens] = await Promise.all([
-      callBackendGet<Record<string, {
-        slugs: string[];
-        quote: ApiTokenPrice;
-      }>>('/prices', { base: baseCurrency }, pricesHeaders),
-      callBackendGet<ApiBaseToken[]>('/known-tokens'),
-    ]);
+    const tokens = await callBackendGet<ApiBaseToken[]>('/known-tokens');
 
     if (!isUpdaterAlive(localOnUpdate)) return;
 
     addKnownTokens(tokens);
-
-    prices.bySlug = Object.values(pricesData).reduce((acc, { slugs, quote }) => {
-      for (const slug of slugs) {
-        acc[slug] = quote;
-      }
-      return acc;
-    }, {} as Record<string, ApiTokenPrice>);
-    prices.baseCurrency = baseCurrency;
 
     sendUpdateTokens();
   } catch (err) {
@@ -435,7 +482,11 @@ export async function tryUpdateTokens(localOnUpdate?: OnApiUpdate) {
   }
 }
 
-export async function tryLoadSwapTokens(localOnUpdate: OnApiUpdate) {
+export async function tryLoadSwapTokens(localOnUpdate?: OnApiUpdate) {
+  if (!localOnUpdate) {
+    localOnUpdate = onUpdate;
+  }
+
   try {
     const assets = await swapGetAssets();
 
@@ -445,6 +496,7 @@ export async function tryLoadSwapTokens(localOnUpdate: OnApiUpdate) {
       acc[asset.slug] = {
         ...asset,
         contract: asset.contract ?? asset.slug,
+        price: prices.bySlug[asset.slug]?.price ?? 0,
       };
       return acc;
     }, {});
@@ -458,28 +510,38 @@ export async function tryLoadSwapTokens(localOnUpdate: OnApiUpdate) {
   }
 }
 
-export async function tryUpdateRegion(localOnUpdate: OnApiUpdate) {
+export async function tryUpdateConfig(localOnUpdate: OnApiUpdate) {
   try {
-    const { isLimited } = await callBackendGet<{ isLimited: boolean }>('/utils/check-region');
+    const {
+      isLimited,
+      isCopyStorageEnabled = false,
+      supportAccountsCount = 1,
+      now: serverUtc,
+    } = await callBackendGet<{
+      isLimited: boolean;
+      isCopyStorageEnabled?: boolean;
+      supportAccountsCount?: number;
+      now: number;
+    }>('/utils/get-config');
 
     if (!isUpdaterAlive(localOnUpdate)) return;
 
     onUpdate({
-      type: 'updateRegion',
+      type: 'updateConfig',
       isLimited,
+      isCopyStorageEnabled,
+      supportAccountsCount,
     });
+
+    const localUtc = (new Date()).getTime();
+    if (Math.abs(serverUtc - localUtc) > INCORRECT_TIME_DIFF) {
+      onUpdate({
+        type: 'incorrectTime',
+      });
+    }
   } catch (err) {
     logDebugError('tryUpdateRegion', err);
   }
-}
-
-async function getClientId() {
-  clientId = await storage.getItem('clientId');
-  if (!clientId) {
-    clientId = Buffer.from(randomBytes(10)).toString('hex');
-    await storage.setItem('clientId', clientId);
-  }
-  return clientId;
 }
 
 export function sendUpdateTokens() {
@@ -508,12 +570,12 @@ export async function setupSwapPolling(accountId: string) {
   const localOnUpdate = onUpdate;
   const swapById: Record<string, ApiSwapHistoryItem> = {};
 
-  while (isUpdaterAlive(localOnUpdate) && isAccountActive(accountId)) {
+  while (isAlive(localOnUpdate, accountId)) {
     try {
       const swaps = await swapGetHistory(address, {
         fromTimestamp,
       });
-      if (!isUpdaterAlive(onUpdate) || !isAccountActive(accountId)) break;
+      if (!isAlive(localOnUpdate, accountId)) break;
       if (!swaps.length) break;
 
       swaps.reverse();
@@ -539,7 +601,7 @@ export async function setupSwapPolling(accountId: string) {
         }
         isPrevFinished = isFinished;
 
-        if (!swap.cex && swap.status !== 'completed') {
+        if (swap.cex || swap.status !== 'completed') {
           // Completed onchain swaps are processed in swapReplaceTransactions
           onUpdate({
             type: 'newActivities',
@@ -555,15 +617,19 @@ export async function setupSwapPolling(accountId: string) {
         });
       }
     } catch (err) {
-      logDebugError('setupSwapCexPolling', err);
+      logDebugError('setupSwapPolling', err);
     }
 
-    await pause(SWAP_POLLING_INTERVAL);
+    await pauseOrFocus(SWAP_POLLING_INTERVAL, SWAP_POLLING_INTERVAL_WHEN_NOT_FOCUSED);
   }
 
   if (accountId === swapPollingAccountId) {
     swapPollingAccountId = undefined;
   }
+}
+
+function isAlive(localOnUpdate: OnApiUpdate, accountId: string) {
+  return isUpdaterAlive(localOnUpdate) && isAccountActive(accountId);
 }
 
 async function getActualLastFinishedSwapTimestamp(accountId: string, address: string) {
@@ -593,6 +659,66 @@ function logAndRescue(err: Error) {
   return undefined;
 }
 
-export async function waitDataPreload() {
-  await preloadEnsurePromise;
+export async function setupWalletVersionsPolling(accountId: string) {
+  const { ton } = blockchains;
+
+  const localOnUpdate = onUpdate;
+
+  const { publicKey, version } = await fetchStoredAccount(accountId);
+  const publicKeyBytes = hexToBytes(publicKey);
+  const { network } = parseAccountId(accountId);
+
+  const versions = POPULAR_WALLET_VERSIONS.filter((value) => value !== version);
+  let lastResult: ApiWalletInfo[] | undefined;
+
+  while (isAlive(localOnUpdate, accountId)) {
+    try {
+      const versionInfos = (await ton.getWalletVersionInfos(
+        network, publicKeyBytes, versions,
+      )).filter(({ lastTxId }) => !!lastTxId);
+
+      const filteredVersions = versionInfos.map(({ wallet, ...rest }) => rest);
+
+      if (!isAlive(localOnUpdate, accountId)) return;
+
+      if (!areDeepEqual(versionInfos, lastResult)) {
+        lastResult = versionInfos;
+        onUpdate({
+          type: 'updateWalletVersions',
+          accountId,
+          currentVersion: version,
+          versions: filteredVersions,
+        });
+      }
+    } catch (err) {
+      logDebugError('setupWalletVersionsPolling', err);
+    }
+
+    await pauseOrFocus(VERSIONS_INTERVAL, VERSIONS_INTERVAL_WHEN_NOT_FOCUSED);
+  }
+}
+
+export async function setupVestingPolling(accountId: string) {
+  const localOnUpdate = onUpdate;
+  let lastVestingInfo: ApiVestingInfo[] | undefined;
+
+  while (isAlive(localOnUpdate, accountId)) {
+    try {
+      const vestingInfo = await fetchVestings(accountId);
+
+      if (!isAlive(localOnUpdate, accountId)) return;
+      if (!areDeepEqual(lastVestingInfo, vestingInfo)) {
+        lastVestingInfo = vestingInfo;
+        onUpdate({
+          type: 'updateVesting',
+          accountId,
+          vestingInfo,
+        });
+      }
+    } catch (err) {
+      logDebugError('setupVestingPolling', err);
+    }
+
+    await pauseOrFocus(VESTING_INTERVAL, VESTING_INTERVAL_WHEN_NOT_FOCUSED);
+  }
 }

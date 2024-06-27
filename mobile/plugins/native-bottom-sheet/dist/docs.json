@@ -36,6 +36,26 @@
         "slug": "clearscrollpatch"
       },
       {
+        "name": "disable",
+        "signature": "() => Promise<void>",
+        "parameters": [],
+        "returns": "Promise<void>",
+        "tags": [],
+        "docs": "",
+        "complexTypes": [],
+        "slug": "disable"
+      },
+      {
+        "name": "enable",
+        "signature": "() => Promise<void>",
+        "parameters": [],
+        "returns": "Promise<void>",
+        "tags": [],
+        "docs": "",
+        "complexTypes": [],
+        "slug": "enable"
+      },
+      {
         "name": "delegate",
         "signature": "(options: { key: BottomSheetKeys; globalJson: string; }) => Promise<void>",
         "parameters": [
@@ -108,52 +128,20 @@
         "slug": "closeself"
       },
       {
-        "name": "setSelfSize",
-        "signature": "(options: { size: 'half' | 'full'; }) => Promise<void>",
+        "name": "toggleSelfFullSize",
+        "signature": "(options: { isFullSize: boolean; }) => Promise<void>",
         "parameters": [
           {
             "name": "options",
             "docs": "",
-            "type": "{ size: 'half' | 'full'; }"
+            "type": "{ isFullSize: boolean; }"
           }
         ],
         "returns": "Promise<void>",
         "tags": [],
         "docs": "",
         "complexTypes": [],
-        "slug": "setselfsize"
-      },
-      {
-        "name": "callActionInMain",
-        "signature": "(options: { name: string; optionsJson: string; }) => Promise<void>",
-        "parameters": [
-          {
-            "name": "options",
-            "docs": "",
-            "type": "{ name: string; optionsJson: string; }"
-          }
-        ],
-        "returns": "Promise<void>",
-        "tags": [],
-        "docs": "",
-        "complexTypes": [],
-        "slug": "callactioninmain"
-      },
-      {
-        "name": "callActionInNative",
-        "signature": "(options: { name: string; optionsJson: string; }) => Promise<void>",
-        "parameters": [
-          {
-            "name": "options",
-            "docs": "",
-            "type": "{ name: string; optionsJson: string; }"
-          }
-        ],
-        "returns": "Promise<void>",
-        "tags": [],
-        "docs": "",
-        "complexTypes": [],
-        "slug": "callactioninnative"
+        "slug": "toggleselffullsize"
       },
       {
         "name": "openInMain",
@@ -219,52 +207,6 @@
           "PluginListenerHandle"
         ],
         "slug": "addlistenermove"
-      },
-      {
-        "name": "addListener",
-        "signature": "(eventName: 'callActionInMain', handler: (options: { name: string; optionsJson: string; }) => void) => Promise<PluginListenerHandle> & PluginListenerHandle",
-        "parameters": [
-          {
-            "name": "eventName",
-            "docs": "",
-            "type": "'callActionInMain'"
-          },
-          {
-            "name": "handler",
-            "docs": "",
-            "type": "(options: { name: string; optionsJson: string; }) => void"
-          }
-        ],
-        "returns": "Promise<PluginListenerHandle> & PluginListenerHandle",
-        "tags": [],
-        "docs": "",
-        "complexTypes": [
-          "PluginListenerHandle"
-        ],
-        "slug": "addlistenercallactioninmain"
-      },
-      {
-        "name": "addListener",
-        "signature": "(eventName: 'callActionInNative', handler: (options: { name: string; optionsJson: string; }) => void) => Promise<PluginListenerHandle> & PluginListenerHandle",
-        "parameters": [
-          {
-            "name": "eventName",
-            "docs": "",
-            "type": "'callActionInNative'"
-          },
-          {
-            "name": "handler",
-            "docs": "",
-            "type": "(options: { name: string; optionsJson: string; }) => void"
-          }
-        ],
-        "returns": "Promise<PluginListenerHandle> & PluginListenerHandle",
-        "tags": [],
-        "docs": "",
-        "complexTypes": [
-          "PluginListenerHandle"
-        ],
-        "slug": "addlistenercallactioninnative"
       },
       {
         "name": "addListener",
@@ -351,6 +293,14 @@
           "complexTypes": []
         },
         {
+          "text": "'vesting-info'",
+          "complexTypes": []
+        },
+        {
+          "text": "'vesting-confirm'",
+          "complexTypes": []
+        },
+        {
           "text": "'transaction-info'",
           "complexTypes": []
         },
@@ -379,7 +329,7 @@
           "complexTypes": []
         },
         {
-          "text": "'dapp-transaction'",
+          "text": "'dapp-transfer'",
           "complexTypes": []
         },
         {
@@ -388,6 +338,10 @@
         },
         {
           "text": "'backup-warning'",
+          "complexTypes": []
+        },
+        {
+          "text": "'onramp-widget'",
           "complexTypes": []
         }
       ]

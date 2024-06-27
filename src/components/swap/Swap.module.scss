@@ -3,10 +3,10 @@
 .modalDialog {
   overflow: hidden;
 
-  height: 35rem;
+  height: 40rem;
 
   @supports (height: env(safe-area-inset-bottom)) {
-    height: calc(35rem + env(safe-area-inset-bottom));
+    height: calc(40rem + env(safe-area-inset-bottom));
   }
 }
 
@@ -147,6 +147,8 @@
 }
 
 .tokenSelectorIcon {
+  margin-top: -0.0625rem;
+
   font-size: 1rem;
   color: var(--color-gray-3);
 }
@@ -156,10 +158,6 @@
   height: 1.5rem;
 
   border-radius: 50%;
-}
-
-.tokenIconWrapper {
-  position: relative;
 }
 
 .tokenBlockchainIcon {
@@ -181,6 +179,8 @@
 .tokenContent {
   display: flex;
   align-items: center;
+
+  margin-top: 0.125rem;
 
   font-size: 0.9375rem;
   font-weight: 700;
@@ -264,6 +264,8 @@
 }
 
 .footerBlock {
+  --background-color: var(--color-background-window);
+
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -273,6 +275,8 @@
 }
 
 .footerBlockStatic {
+  --background-color: var(--color-background-first);
+
   margin-top: 2rem;
 }
 
@@ -407,6 +411,10 @@
 
 .footerButtonWrapper {
   height: 2.75rem;
+
+  :global(.Transition_slide) {
+    background: var(--background-color);
+  }
 }
 
 .footerButton {
@@ -425,10 +433,6 @@
 
   background-color: var(--color-background-first);
   border-radius: var(--border-radius-default);
-}
-
-.priceImpactStatic {
-  padding: 0;
 }
 
 .priceImpactSticker {
@@ -556,6 +560,7 @@
   padding: 0 2rem;
 }
 
+.changellyDescription,
 .blockchainHintText {
   font-size: 0.8125rem;
   font-weight: 500;
@@ -606,6 +611,10 @@
   }
 }
 
+.inputButtonShifted {
+  right: 2.5rem;
+}
+
 .changellyInfo {
   display: flex;
   gap: 1rem;
@@ -617,7 +626,8 @@
   border-radius: var(--border-radius-default);
 }
 
-.changellyInfoStatic {
+.changellyInfoStatic,
+.priceImpactStatic {
   padding: 0;
 }
 
@@ -638,6 +648,7 @@
   line-height: 0.8125rem;
   text-align: center;
 }
+
 .changellyInfoDescription {
   font-size: 0.75rem;
   font-weight: 500;
@@ -650,10 +661,6 @@
   color: var(--color-green);
 }
 
-.blockchainButtons {
-  padding: 0;
-}
-
 .changellyInfoBlock {
   display: flex;
   flex-direction: column;
@@ -663,28 +670,20 @@
   margin-top: 2rem;
 }
 
-.changellyDescription {
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--color-gray-2);
-  text-align: center;
-}
-
-.changellyTextField {
+.blockchainButtons,
+.changellyTextField,
+.textFieldWrapperFullWidth {
   width: 100%;
 }
 
 .changellyImportantRed {
-  font-size: 1.0625rem;
-  font-weight: 700;
+  font-size: 0.9375rem;
+  font-weight: 600;
   color: var(--color-red);
   text-align: center;
 }
 
-.changellyDescriptionBold {
-  font-weight: 700;
-}
-
+.tokenIconWrapper,
 .arrowContainer,
 .arrowContainerInverted {
   position: relative;
@@ -767,7 +766,8 @@ $animation-time: 350ms;
   margin-bottom: 2rem;
 }
 
-.swapShortAmount {
+.swapShortAmount,
+.changellyDescriptionBold {
   font-weight: 700;
 }
 
@@ -797,4 +797,52 @@ $animation-time: 350ms;
   border-radius: 50%;
   box-shadow: 0 0 0 0.0625rem var(--color-activity-blue-background),
               0 0 0 0.0625rem var(--color-background-second);
+}
+
+.qrCode {
+  position: relative;
+
+  overflow: hidden;
+
+  aspect-ratio: 1;
+  width: 100%;
+  max-width: 9rem;
+  margin: 0 auto;
+
+  background-color: var(--color-white);
+  border-radius: var(--border-radius-card);
+
+  transition: opacity 350ms ease-in-out;
+
+  canvas {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+
+    display: block;
+
+    width: calc(100% - 1rem);
+    height: calc(100% - 1rem);
+  }
+}
+
+.qrCodeHidden {
+  opacity: 0;
+}
+
+.textFieldWrapperFullWidth {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.textFieldLabel {
+  display: flex;
+  align-items: center;
+
+  padding-left: 0.5rem;
+
+  font-size: 0.8125rem;
+  font-weight:  700;
+  color: var(--color-gray-2);
 }

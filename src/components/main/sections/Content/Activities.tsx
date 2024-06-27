@@ -1,4 +1,3 @@
-import type { RefObject } from 'react';
 import React, {
   memo, useEffect, useLayoutEffect, useMemo, useRef,
 } from '../../../../lib/teact/teact';
@@ -8,17 +7,20 @@ import { getActions, withGlobal } from '../../../../global';
 import type { ApiActivity, ApiSwapAsset, ApiToken } from '../../../../api/types';
 import { ContentTab } from '../../../../global/types';
 
-import {
-  ANIMATED_STICKER_BIG_SIZE_PX, MIN_ASSETS_TAB_VIEW, TON_TOKEN_SLUG,
-} from '../../../../config';
+import { ANIMATED_STICKER_BIG_SIZE_PX, MIN_ASSETS_TAB_VIEW, TONCOIN_SLUG } from '../../../../config';
 import { getIsSwapId, getIsTinyTransaction, getIsTxIdLocal } from '../../../../global/helpers';
 import {
-  selectCurrentAccountState, selectCurrentAccountTokens, selectEnabledTokensCountMemoized, selectIsNewWallet,
+  selectAccountSettings,
+  selectCurrentAccountState,
+  selectCurrentAccountTokens,
+  selectEnabledTokensCountMemoized,
+  selectIsNewWallet,
 } from '../../../../global/selectors';
 import buildClassName from '../../../../util/buildClassName';
 import { compareActivities } from '../../../../util/compareActivities';
 import { formatHumanDay, getDayStartAt } from '../../../../util/dateFormat';
 import { findLast, unique } from '../../../../util/iteratees';
+import { REM } from '../../../../util/windowEnvironment';
 import { ANIMATED_STICKERS_PATHS } from '../../../ui/helpers/animatedAssets';
 
 import { useDeviceScreen } from '../../../../hooks/useDeviceScreen';
@@ -26,10 +28,13 @@ import useInfiniteScroll from '../../../../hooks/useInfiniteScroll';
 import useLang from '../../../../hooks/useLang';
 import useLastCallback from '../../../../hooks/useLastCallback';
 import useThrottledCallback from '../../../../hooks/useThrottledCallback';
+import useUpdateIndicator from '../../../../hooks/useUpdateIndicator';
 
 import AnimatedIconWithPreview from '../../../ui/AnimatedIconWithPreview';
 import InfiniteScroll from '../../../ui/InfiniteScroll';
 import Loading from '../../../ui/Loading';
+import LoadingDots from '../../../ui/LoadingDots';
+import Transition from '../../../ui/Transition';
 import NewWalletGreeting from './NewWalletGreeting';
 import Swap from './Swap';
 import Transaction from './Transaction';
@@ -38,7 +43,6 @@ import styles from './Activities.module.scss';
 
 interface OwnProps {
   isActive?: boolean;
-  mobileRef?: RefObject<HTMLDivElement>;
 }
 
 type StateProps = {
@@ -55,6 +59,8 @@ type StateProps = {
   savedAddresses?: Record<string, string>;
   isMainHistoryEndReached?: boolean;
   isHistoryEndReachedBySlug?: Record<string, boolean>;
+  exceptionSlugs?: string[];
+  activitiesUpdateStartedAt?: number;
 };
 
 interface ActivityOffsetInfo {
@@ -62,21 +68,22 @@ interface ActivityOffsetInfo {
   offsetNext: number;
   dateCount: number;
   commentCount: number;
+  nftCount: number;
   date: number;
 }
 
 const FURTHER_SLICE = 30;
 const THROTTLE_TIME = 1000;
 
-const DATE_HEADER_HEIGHT = 40;
-const TRANSACTION_COMMENT_HEIGHT = 35;
-const TRANSACTION_HEIGHT = 64;
+const DATE_HEADER_HEIGHT = 2.5 * REM;
+const TRANSACTION_COMMENT_HEIGHT = 2.1875 * REM;
+const TRANSACTION_NFT_HEIGHT = 4 * REM;
+const TRANSACTION_HEIGHT = 4 * REM;
 
 const TIME_BETWEEN_SWAP_AND_TX = 3600000; // 1 hour
 
 function Activities({
   isActive,
-  mobileRef,
   currentAccountId,
   isNewWallet,
   slug,
@@ -90,6 +97,8 @@ function Activities({
   savedAddresses,
   isMainHistoryEndReached,
   isHistoryEndReachedBySlug,
+  exceptionSlugs,
+  activitiesUpdateStartedAt = 0,
 }: OwnProps & StateProps) {
   const {
     fetchTokenTransactions, fetchAllTransactions, showActivityInfo,
@@ -100,8 +109,7 @@ function Activities({
 
   // eslint-disable-next-line no-null/no-null
   const containerRef = useRef<HTMLDivElement>(null);
-  // eslint-disable-next-line no-null/no-null
-  const portraitContainerRef = useRef<HTMLDivElement>(null);
+  const isUpdating = useUpdateIndicator(activitiesUpdateStartedAt);
 
   const ids = useMemo(() => {
     let idList: string[] | undefined;
@@ -118,7 +126,7 @@ function Activities({
           idList = idList.filter((txId) => byId[txId].timestamp >= lastTokenTxTimestamp);
         }
       } else {
-        const lastTonTxId = findLast(bySlug[TON_TOKEN_SLUG] ?? [], (id) => !getIsTxIdLocal(id) && !getIsSwapId(id));
+        const lastTonTxId = findLast(bySlug[TONCOIN_SLUG] ?? [], (id) => !getIsTxIdLocal(id) && !getIsSwapId(id));
         idList = unique(Object.values(bySlug).flat());
         if (lastTonTxId) {
           idList = idList.filter((txId) => byId[txId].timestamp >= byId[lastTonTxId].timestamp);
@@ -151,7 +159,11 @@ function Activities({
           return Boolean(
             activity?.slug
             && (!slug || activity.slug === slug)
-            && (!areTinyTransfersHidden || !getIsTinyTransaction(activity, tokensBySlug![activity.slug])),
+            && (
+              !areTinyTransfersHidden
+              || !getIsTinyTransaction(activity, tokensBySlug![activity.slug])
+              || exceptionSlugs?.includes(activity.slug)
+            ),
           );
         }
       }) as ApiActivity[];
@@ -161,7 +173,7 @@ function Activities({
     }
 
     return allActivities;
-  }, [areTinyTransfersHidden, byId, ids, slug, tokensBySlug]);
+  }, [areTinyTransfersHidden, byId, exceptionSlugs, ids, slug, tokensBySlug]);
 
   const { activityIds, activitiesById } = useMemo(() => {
     const activityIdList: string[] = [];
@@ -203,6 +215,7 @@ function Activities({
     const offsetMap: Record<string, ActivityOffsetInfo> = {};
 
     let dateCount = 0;
+    let nftCount = 0;
     let commentCount = 0;
     let lastActivityDayStart = 0;
 
@@ -215,27 +228,36 @@ function Activities({
         offsetNext: 0,
         dateCount: 0,
         commentCount: 0,
+        nftCount: 0,
         date: lastActivityDayStart,
       };
 
-      const offsetTop = calculateOffset(index, dateCount, commentCount);
+      const offsetTop = calculateOffset(index, dateCount, commentCount, nftCount);
       const activityDayStart = getDayStartAt(activity.timestamp);
       const isNewDay = lastActivityDayStart !== activityDayStart;
+      const isNftTransfer = activity.kind === 'transaction'
+        && (activity.type === 'nftTransferred' || activity.type === 'nftReceived');
+      const canCountComment = activity.kind === 'transaction' && (!activity.type || isNftTransfer);
       if (isNewDay) {
         lastActivityDayStart = activityDayStart;
         dateCount += 1;
       }
 
-      if (activity.kind === 'transaction' && !activity.type && (activity.comment || activity.encryptedComment)) {
+      if (canCountComment && (activity.comment || activity.encryptedComment)) {
         commentCount += 1;
+      }
+
+      if (isNftTransfer && activity.nft) {
+        nftCount += 1;
       }
 
       offsetMap[id] = {
         ...offsetMap[id],
         offset: offsetTop,
-        offsetNext: calculateOffset(index + 1, dateCount, commentCount),
+        offsetNext: calculateOffset(index + 1, dateCount, commentCount, nftCount),
         dateCount,
         commentCount,
+        nftCount,
       };
     });
 
@@ -245,14 +267,18 @@ function Activities({
   const currentContainerHeight = useMemo(
     () => {
       const lastViewportId = viewportIds![viewportIds!.length - 1];
-      const activityInfo = activityOffsetInfoById[lastViewportId];
 
-      if (!activityInfo) return 0;
-
-      return activityInfo.offsetNext;
+      return activityOffsetInfoById[lastViewportId]?.offsetNext || 0;
     },
     [activityOffsetInfoById, viewportIds],
   );
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    setExtraStyles(container, { height: isLandscape ? '' : `${currentContainerHeight}px` });
+  }, [isLandscape, currentContainerHeight]);
 
   useEffect(() => {
     if (!isHistoryEndReached && ids && isActivitiesEmpty) {
@@ -265,19 +291,6 @@ function Activities({
       resetScroll?.();
     }
   }, [isActive, isLandscape, resetScroll]);
-
-  useLayoutEffect(() => {
-    if (isLandscape && containerRef.current) {
-      setExtraStyles(containerRef.current, { height: '' });
-      return;
-    }
-
-    if (!containerRef.current || !mobileRef?.current) return;
-
-    portraitContainerRef.current = mobileRef.current?.closest<HTMLDivElement>('.app-slide-content');
-
-    setExtraStyles(containerRef.current, { height: `${currentContainerHeight}px` });
-  }, [isLandscape, currentContainerHeight, mobileRef]);
 
   const handleActivityClick = useLastCallback((id: string) => {
     showActivityInfo({ id });
@@ -317,6 +330,33 @@ function Activities({
     }
   }
 
+  function renderDate(dateValue: number, isFirst?: boolean) {
+    const formattedDate = formatHumanDay(lang, dateValue);
+    const date = <div className={styles.date}>{formattedDate}</div>;
+
+    if (!isFirst) {
+      return date;
+    }
+
+    const dateWithLoader = (
+      <div className={buildClassName(styles.date, styles.date_withLoadingDots)}>
+        {formattedDate}
+        <LoadingDots isActive isDoubled className={styles.loadingDots} />
+      </div>
+    );
+
+    return (
+      <Transition
+        name="semiFade"
+        activeKey={isUpdating ? 1 : 0}
+        className={styles.dateContainer}
+        slideClassName={styles.dateSlide}
+      >
+        {isUpdating ? dateWithLoader : date}
+      </Transition>
+    );
+  }
+
   function renderHistory() {
     return viewportIds!.map((id, index) => {
       const activityInfo = activityOffsetInfoById[id];
@@ -330,7 +370,8 @@ function Activities({
       const isNewDay = activityInfo.date !== activityDayStart;
 
       const nextActivityDayStart = nextActivity ? getDayStartAt(nextActivity.timestamp) : 0;
-      const isLast = !nextActivityId || activityInfo.date !== nextActivityDayStart;
+      const isFirst = index === 0;
+      const isLast = activityDayStart !== nextActivityDayStart;
 
       const isActivityActive = activity.id === currentActivityId;
 
@@ -340,7 +381,7 @@ function Activities({
           style={`top: ${activityInfo.offset}px`}
           className={buildClassName('ListItem', styles.listItem)}
         >
-          {isNewDay && <div className={styles.date}>{formatHumanDay(lang, activityDayStart)}</div>}
+          {isNewDay && renderDate(activityDayStart, isFirst)}
           {renderActivity(activity, isLast, isActivityActive)}
         </div>
       );
@@ -382,9 +423,9 @@ function Activities({
 
   return (
     <InfiniteScroll
-      className={buildClassName('custom-scroll', styles.listGroup)}
       ref={containerRef}
-      scrollRef={isLandscape ? undefined : portraitContainerRef}
+      className={buildClassName('custom-scroll', styles.listGroup)}
+      scrollContainerClosest={!isLandscape && isActive ? '.app-slide-content' : undefined}
       items={viewportIds}
       preloadBackwards={FURTHER_SLICE}
       withAbsolutePositioning
@@ -400,6 +441,7 @@ export default memo(
   withGlobal<OwnProps>(
     (global): StateProps => {
       const accountState = selectCurrentAccountState(global);
+      const accountSettings = selectAccountSettings(global, global.currentAccountId!);
       const isNewWallet = selectIsNewWallet(global);
       const slug = accountState?.currentTokenSlug;
       const {
@@ -419,6 +461,8 @@ export default memo(
         isMainHistoryEndReached,
         isHistoryEndReachedBySlug,
         currentActivityId: accountState?.currentActivityId,
+        exceptionSlugs: accountSettings?.exceptionSlugs,
+        activitiesUpdateStartedAt: global.activitiesUpdateStartedAt,
       };
     },
     (global, _, stickToFirst) => {
@@ -435,8 +479,9 @@ export default memo(
   )(Activities),
 );
 
-function calculateOffset(index: number, dateCount: number, commentCount: number) {
+function calculateOffset(index: number, dateCount: number, commentCount: number, nftCount: number) {
   const commentOffset = commentCount * TRANSACTION_COMMENT_HEIGHT;
   const dateOffset = dateCount * DATE_HEADER_HEIGHT;
-  return index * TRANSACTION_HEIGHT + dateOffset + commentOffset;
+  const nftOffset = nftCount * TRANSACTION_NFT_HEIGHT;
+  return index * TRANSACTION_HEIGHT + dateOffset + commentOffset + nftOffset;
 }

@@ -5,15 +5,20 @@ import buildClassName from '../../util/buildClassName';
 import useFlag from '../../hooks/useFlag';
 import useLang from '../../hooks/useLang';
 
+import DropdownMenu from './DropdownMenu';
 import Loading from './Loading';
-import Menu from './Menu';
 
 import styles from './Dropdown.module.scss';
 
 export interface DropdownItem {
   value: string;
   name: string;
+  description?: string;
   icon?: string;
+  fontIcon?: string;
+  isDisabled?: boolean;
+  isDangerous?: boolean;
+  withSeparator?: boolean;
 }
 
 interface OwnProps {
@@ -54,12 +59,6 @@ function Dropdown({
   const selectedItem = useMemo(() => {
     return items.find((item) => item.value === selectedValue);
   }, [items, selectedValue]);
-
-  const handleItemClick = (e: React.MouseEvent, value: string) => {
-    e.stopPropagation();
-    onChange?.(value);
-    closeMenu();
-  };
 
   if (!items.length) {
     return undefined;
@@ -102,6 +101,12 @@ function Dropdown({
           disabled={disabled}
         >
           {selectedItem?.icon && <img src={selectedItem.icon} alt="" className={styles.itemIcon} />}
+          {selectedItem?.fontIcon && (
+            <i
+              className={buildClassName(`icon-${selectedItem.fontIcon}`, styles.fontIcon)}
+              aria-hidden
+            />
+          )}
           <span className={buildClassName(styles.itemName, 'itemName')}>
             {shouldTranslateOptions ? lang(selectedItem!.name) : selectedItem!.name}
           </span>
@@ -110,33 +115,16 @@ function Dropdown({
       )}
 
       {withMenu && (
-        <Menu
-          positionX={menuPositionHorizontal}
-          positionY={menuPosition}
+        <DropdownMenu
           isOpen={isMenuOpen && !isLoading}
+          menuPositionHorizontal={menuPositionHorizontal}
+          menuPosition={menuPosition}
+          items={items}
+          shouldTranslateOptions={shouldTranslateOptions}
+          selectedValue={selectedValue}
+          onSelect={onChange}
           onClose={closeMenu}
-          type="dropdown"
-        >
-          {items.map((item) => {
-            const buttonClassName = buildClassName(
-              styles.item,
-              item.icon && styles.item_with_icon,
-              selectedValue === item.value && styles.item_selected,
-            );
-            return (
-              <button
-                type="button"
-                onClick={(e) => handleItemClick(e, item.value)}
-                className={buttonClassName}
-              >
-                {item.icon && <img src={item.icon} alt="" className={styles.itemIcon} />}
-                <span className={buildClassName(styles.itemName, 'menuItemName')}>
-                  {shouldTranslateOptions ? lang(item.name) : item.name}
-                </span>
-              </button>
-            );
-          })}
-        </Menu>
+        />
       )}
     </div>
   );

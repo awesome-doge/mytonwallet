@@ -6,15 +6,15 @@ import path from 'path';
 
 import { ElectronAction } from './types';
 
-import { APP_ENV, BASE_URL, BETA_URL } from '../config';
+import { BASE_URL, IS_PRODUCTION } from '../config';
 import { AUTO_UPDATE_SETTING_KEY, getIsAutoUpdateEnabled, setupAutoUpdates } from './autoUpdates';
 import { processDeeplink } from './deeplink';
 import { captureStorage, restoreStorage } from './storageUtils';
 import tray from './tray';
 import {
-  checkIsWebContentsUrlAllowed, FORCE_STORAGE_CAPTURED_SETTINGS_KEY, forceQuit,
-  getIsForceStorageCaptureRequired, IS_FIRST_RUN, IS_MAC_OS, IS_PREVIEW, IS_WINDOWS,
-  mainWindow, setMainWindow, store, WINDOW_STATE_FILE,
+  checkIsWebContentsUrlAllowed, forceQuit, IS_FIRST_RUN,
+  IS_MAC_OS, IS_PREVIEW, IS_WINDOWS, mainWindow, setMainWindow,
+  store, WINDOW_STATE_FILE,
 } from './utils';
 
 const ALLOWED_DEVICE_ORIGINS = ['http://localhost:4321', 'file://', BASE_URL];
@@ -37,7 +37,7 @@ export function createWindow() {
     title: 'MyTonWallet',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      devTools: APP_ENV !== 'production',
+      devTools: !IS_PRODUCTION,
     },
     titleBarStyle: 'hidden',
     ...(IS_MAC_OS && {
@@ -79,7 +79,7 @@ export function createWindow() {
   mainWindow.webContents.once('dom-ready', async () => {
     processDeeplink();
 
-    if (APP_ENV === 'production') {
+    if (IS_PRODUCTION) {
       setupAutoUpdates();
     }
 
@@ -89,28 +89,18 @@ export function createWindow() {
       loadWindowUrl();
     }
 
-    if (await getIsForceStorageCaptureRequired()) {
-      await captureStorage();
-      store.set(FORCE_STORAGE_CAPTURED_SETTINGS_KEY, true);
-      loadWindowUrl();
-    }
-
     mainWindow.show();
   });
 
   loadWindowUrl();
 }
 
-async function loadWindowUrl(): Promise<void> {
+function loadWindowUrl(): void {
   if (!app.isPackaged) {
     mainWindow.loadURL('http://localhost:4321');
     mainWindow.webContents.openDevTools();
   } else if (getIsAutoUpdateEnabled()) {
-    if (await getIsForceStorageCaptureRequired()) {
-      mainWindow.loadURL(BETA_URL);
-    } else {
-      mainWindow.loadURL(BASE_URL!);
-    }
+    mainWindow.loadURL(BASE_URL!);
   } else if (getIsAutoUpdateEnabled() === undefined && IS_FIRST_RUN) {
     store.set(AUTO_UPDATE_SETTING_KEY, true);
     mainWindow.loadURL(BASE_URL!);
@@ -163,14 +153,20 @@ export function setupElectronActionHandlers() {
 
 export function setupCloseHandlers() {
   mainWindow.on('close', (event: Event) => {
-    if (IS_MAC_OS || (IS_WINDOWS && tray.isEnabled)) {
-      if (forceQuit.isEnabled) {
-        app.exit(0);
-        forceQuit.disable();
-      } else {
-        event.preventDefault();
-        mainWindow.hide();
-      }
+    if (forceQuit.isEnabled) {
+      app.exit(0);
+      return;
+    }
+
+    if (mainWindow.isFullScreen()) {
+      event.preventDefault();
+      mainWindow.once('leave-full-screen', () => {
+        mainWindow.close();
+      });
+      mainWindow.setFullScreen(false);
+    } else if (IS_MAC_OS || (IS_WINDOWS && tray.isEnabled)) {
+      event.preventDefault();
+      mainWindow.hide();
     }
   });
 

@@ -12,22 +12,27 @@ import {
   CHANGELLY_AML_KYC,
   CHANGELLY_PRIVACY_POLICY,
   CHANGELLY_TERMS_OF_USE,
-  JWBTC_TOKEN_SLUG,
+  DEFAULT_SWAP_SECOND_TOKEN_SLUG,
   TON_SYMBOL,
-  TON_TOKEN_SLUG,
+  TONCOIN_SLUG,
 } from '../../config';
+import { Big } from '../../lib/big.js';
 import { selectSwapTokens } from '../../global/selectors';
 import buildClassName from '../../util/buildClassName';
-import { formatCurrency, formatCurrencySimple } from '../../util/formatNumber';
+import { vibrate } from '../../util/capacitor';
+import { fromDecimal, toDecimal } from '../../util/decimals';
+import { formatCurrency } from '../../util/formatNumber';
 import getSwapRate from '../../util/swap/getSwapRate';
 import { ANIMATED_STICKERS_PATHS } from '../ui/helpers/animatedAssets';
 
+import { isBackgroundModeActive } from '../../hooks/useBackgroundMode';
 import useDebouncedCallback from '../../hooks/useDebouncedCallback';
 import useFlag from '../../hooks/useFlag';
 import useLang from '../../hooks/useLang';
 import useLastCallback from '../../hooks/useLastCallback';
 import usePrevious from '../../hooks/usePrevious';
 import useSyncEffect from '../../hooks/useSyncEffect';
+import useThrottledCallback from '../../hooks/useThrottledCallback';
 
 import AnimatedIconWithPreview from '../ui/AnimatedIconWithPreview';
 import RichNumberInput from '../ui/RichNumberInput';
@@ -50,9 +55,9 @@ interface StateProps {
   tokens?: UserSwapToken[];
 }
 
-const ESTIMATE_REQUEST_INTERVAL = 5_000;
-const ESTIMATE_REQUEST_DEBOUNCE_TIME = 500;
-const DEFAULT_SWAP_FEE = 0.5;
+const ESTIMATE_REQUEST_INTERVAL = 1_000;
+const SET_AMOUNT_DEBOUNCE_TIME = 500;
+const DEFAULT_SWAP_FEE = 500000000n; // 0.5 TON
 
 function SwapInitial({
   currentSwap: {
@@ -72,6 +77,7 @@ function SwapInitial({
     isLoading,
     pairs,
     isSettingsModalOpen,
+    dieselStatus,
   },
   accountId,
   tokens,
@@ -90,6 +96,7 @@ function SwapInitial({
     setSwapType,
     setSwapCexAddress,
     toggleSwapSettingsModal,
+    authorizeDiesel,
   } = getActions();
   const lang = useLang();
 
@@ -97,14 +104,13 @@ function SwapInitial({
   const inputInRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line no-null/no-null
   const inputOutRef = useRef<HTMLDivElement>(null);
-
   // eslint-disable-next-line no-null/no-null
   const estimateIntervalId = useRef<number>(null);
 
   const [hasAmountInError, setHasAmountInError] = useState(false);
 
-  const currentTokenInSlug = tokenInSlug ?? TON_TOKEN_SLUG;
-  const currentTokenOutSlug = tokenOutSlug ?? JWBTC_TOKEN_SLUG;
+  const currentTokenInSlug = tokenInSlug ?? TONCOIN_SLUG;
+  const currentTokenOutSlug = tokenOutSlug ?? DEFAULT_SWAP_SECOND_TOKEN_SLUG;
 
   const tokenInTransitionKey = useTokenTransitionKey(currentTokenInSlug ?? '');
 
@@ -120,40 +126,54 @@ function SwapInitial({
     [currentTokenOutSlug, tokens],
   );
 
-  const TON = useMemo(
-    () => tokens?.find((token) => token.slug === TON_TOKEN_SLUG) ?? { amount: 0 },
+  const toncoin = useMemo(
+    () => tokens?.find((token) => token.slug === TONCOIN_SLUG) ?? { amount: 0 },
     [tokens],
   );
 
-  const isTokenInTON = currentTokenInSlug === TON_TOKEN_SLUG;
-  const totalTonAmount = useMemo(
+  const isToncoinIn = currentTokenInSlug === TONCOIN_SLUG;
+  const totalToncoinAmount = useMemo(
     () => {
       if (!tokenIn || !amountIn) {
-        return 0;
+        return 0n;
       }
-      if (isTokenInTON) {
-        return amountIn + networkFee;
+      if (isToncoinIn) {
+        return fromDecimal(amountIn) + fromDecimal(networkFee);
       }
-      return networkFee;
+      return fromDecimal(networkFee);
     },
-    [tokenIn, amountIn, isTokenInTON, networkFee],
+    [tokenIn, amountIn, isToncoinIn, networkFee],
   );
 
+  const amountInBig = useMemo(() => Big(amountIn || 0), [amountIn]);
+  const amountOutBig = useMemo(() => Big(amountOut || 0), [amountOut]);
+  const tokenInAmountBig = useMemo(() => toDecimal(tokenIn?.amount ?? 0n, tokenIn?.decimals), [tokenIn]);
+
   const isErrorExist = errorType !== undefined;
-  const isEnoughTON = TON.amount > totalTonAmount;
+  const isEnoughToncoin = toncoin.amount > totalToncoinAmount;
   // eslint-disable-next-line max-len
-  const isCorrectAmountIn = (amountIn && tokenIn?.amount && amountIn > 0 && amountIn <= tokenIn?.amount && isEnoughTON) || swapType === SwapType.CrosschainToTon;
-  const isCorrectAmountOut = amountOut && amountOut > 0;
-  const canSubmit = Boolean(isCorrectAmountIn && isCorrectAmountOut && !isEstimating && !isErrorExist);
+  const isCorrectAmountIn = Boolean(
+    amountIn
+    && tokenIn?.amount
+    && amountInBig.gt(0)
+    && amountInBig.lte(tokenInAmountBig),
+  ) || swapType === SwapType.CrosschainToToncoin;
+  const isEnoughFee = swapType === SwapType.CrosschainToToncoin || isEnoughToncoin || (
+    dieselStatus === 'available' || dieselStatus === 'not-authorized'
+  );
+  const isCorrectAmountOut = amountOut && amountOutBig.gt(0);
+  const canSubmit = Boolean(isCorrectAmountIn && isCorrectAmountOut && isEnoughFee && !isEstimating && !isErrorExist);
   const isPriceImpactError = priceImpact >= MAX_PRICE_IMPACT_VALUE;
 
-  const isCrosschain = swapType === SwapType.CrosschainFromTon || swapType === SwapType.CrosschainToTon;
+  const isCrosschain = swapType === SwapType.CrosschainFromToncoin || swapType === SwapType.CrosschainToToncoin;
 
   const isReverseProhibited = useMemo(() => {
     return isCrosschain || pairs?.bySlug?.[currentTokenInSlug]?.[currentTokenOutSlug]?.isReverseProhibited;
   }, [currentTokenInSlug, currentTokenOutSlug, isCrosschain, pairs?.bySlug]);
 
   const handleEstimateSwap = useLastCallback((shouldBlock: boolean) => {
+    if (!isActive || isBackgroundModeActive()) return;
+
     if (isCrosschain) {
       estimateSwapCex({ shouldBlock });
       return;
@@ -161,13 +181,18 @@ function SwapInitial({
     estimateSwap({ shouldBlock });
   });
 
-  const debounceEstimateSwap = useDebouncedCallback(
-    handleEstimateSwap, [handleEstimateSwap], ESTIMATE_REQUEST_DEBOUNCE_TIME, true,
+  const throttledEstimateSwap = useThrottledCallback(
+    handleEstimateSwap, [handleEstimateSwap], ESTIMATE_REQUEST_INTERVAL, true,
   );
-
+  const debounceSetAmountIn = useDebouncedCallback(
+    setSwapAmountIn, [setSwapAmountIn], SET_AMOUNT_DEBOUNCE_TIME, true,
+  );
+  const debounceSetAmountOut = useDebouncedCallback(
+    setSwapAmountOut, [setSwapAmountOut], SET_AMOUNT_DEBOUNCE_TIME, true,
+  );
   const createEstimateTimer = useLastCallback(() => {
     estimateIntervalId.current = window.setInterval(() => {
-      debounceEstimateSwap(false);
+      throttledEstimateSwap(false);
     }, ESTIMATE_REQUEST_INTERVAL);
   });
 
@@ -182,13 +207,13 @@ function SwapInitial({
 
     if (shouldEstimate) {
       clearEstimateTimer();
-      debounceEstimateSwap(true);
+      throttledEstimateSwap(true);
     }
 
     createEstimateTimer();
 
     return clearEstimateTimer;
-  }, [shouldEstimate, debounceEstimateSwap, createEstimateTimer]);
+  }, [shouldEstimate, createEstimateTimer, throttledEstimateSwap]);
 
   useEffect(() => {
     const shouldForceUpdate = accountId !== accountIdPrev;
@@ -203,24 +228,24 @@ function SwapInitial({
 
   useEffect(() => {
     if (tokenIn?.blockchain === 'ton' && tokenOut?.blockchain !== 'ton') {
-      setSwapType({ type: SwapType.CrosschainFromTon });
+      setSwapType({ type: SwapType.CrosschainFromToncoin });
       return;
     } else if (tokenOut?.blockchain === 'ton' && tokenIn?.blockchain !== 'ton') {
-      setSwapType({ type: SwapType.CrosschainToTon });
+      setSwapType({ type: SwapType.CrosschainToToncoin });
       return;
     }
     setSwapType({ type: SwapType.OnChain });
   }, [tokenIn, tokenOut]);
 
-  const validateAmountIn = useLastCallback((amount: number | undefined) => {
-    if (swapType === SwapType.CrosschainToTon) {
+  const validateAmountIn = useLastCallback((amount: string | undefined) => {
+    if (swapType === SwapType.CrosschainToToncoin) {
       setHasAmountInError(false);
       return;
     }
 
-    const hasError = amount !== undefined && (
-      Number.isNaN(amount) || amount < 0
-      || (tokenIn?.amount !== undefined && amount > tokenIn.amount)
+    const amountBig = amount === undefined ? undefined : Big(amount);
+    const hasError = amountBig !== undefined && (
+      amountBig.lt(0) || (tokenIn?.amount !== undefined && amountBig.gt(tokenInAmountBig))
     );
 
     setHasAmountInError(hasError);
@@ -231,24 +256,24 @@ function SwapInitial({
   }, [amountIn, tokenIn, validateAmountIn, swapType]);
 
   const handleAmountInChange = useLastCallback(
-    (amount: number | undefined, noReset = false) => {
+    (amount: string | undefined, noReset = false) => {
       if (!noReset) {
         setHasAmountInError(false);
       }
 
-      if (amount === undefined) {
-        setSwapAmountIn({ amount: undefined });
+      if (!amount) {
+        debounceSetAmountIn({ amount: undefined });
         return;
       }
 
       validateAmountIn(amount);
-      setSwapAmountIn({ amount });
+      debounceSetAmountIn({ amount });
     },
   );
 
   const handleAmountOutChange = useLastCallback(
-    (amount: number | undefined) => {
-      setSwapAmountOut({ amount });
+    (amount: string | undefined) => {
+      debounceSetAmountOut({ amount });
     },
   );
 
@@ -260,12 +285,16 @@ function SwapInitial({
         return;
       }
 
+      vibrate();
+
       const amountWithFee = tokenIn.amount > DEFAULT_SWAP_FEE
         ? tokenIn.amount - DEFAULT_SWAP_FEE
         : tokenIn.amount;
-      const newAmount = isTokenInTON ? amountWithFee : tokenIn.amount;
+      const newAmount = isToncoinIn ? amountWithFee : tokenIn.amount;
+      const amount = toDecimal(newAmount, tokenIn.decimals);
 
-      handleAmountInChange(newAmount);
+      validateAmountIn(amount);
+      setSwapAmountIn({ amount });
     },
   );
 
@@ -276,9 +305,16 @@ function SwapInitial({
       return;
     }
 
+    if (!isEnoughToncoin && dieselStatus === 'not-authorized') {
+      authorizeDiesel();
+      return;
+    }
+
+    vibrate();
+
     if (isCrosschain) {
       setSwapCexAddress({ toAddress: '' });
-      if (swapType === SwapType.CrosschainToTon) {
+      if (swapType === SwapType.CrosschainToToncoin) {
         setSwapScreen({ state: SwapState.Password });
       } else {
         setSwapScreen({ state: SwapState.Blockchain });
@@ -290,6 +326,7 @@ function SwapInitial({
   });
 
   const handleSwitchTokens = useLastCallback(() => {
+    vibrate();
     switchSwapTokens();
   });
 
@@ -302,7 +339,7 @@ function SwapInitial({
   });
 
   function renderBalance() {
-    const isBalanceVisible = tokenIn && swapType !== SwapType.CrosschainToTon;
+    const isBalanceVisible = tokenIn && swapType !== SwapType.CrosschainToToncoin;
 
     return (
       <Transition
@@ -320,7 +357,7 @@ function SwapInitial({
                     onClick={handleMaxAmountClick}
                     className={styles.balanceLink}
                   >
-                    {formatCurrencySimple(tokenIn.amount, tokenIn?.symbol, tokenIn?.decimals)}
+                    {formatCurrency(toDecimal(tokenIn.amount, tokenIn?.decimals), tokenIn?.symbol)}
                   </div>
                 ),
               })}
@@ -430,7 +467,7 @@ function SwapInitial({
   }
 
   function renderFee() {
-    if (swapType === SwapType.CrosschainToTon) return undefined;
+    if (swapType === SwapType.CrosschainToToncoin) return undefined;
 
     const isFeeEqualZero = realNetworkFee === 0;
     const text = lang(isFeeEqualZero ? '$fee_value' : '$fee_value_almost_equal', {
@@ -472,7 +509,7 @@ function SwapInitial({
               labelText={lang('You sell')}
               className={styles.amountInput}
               hasError={hasAmountInError}
-              value={amountIn}
+              value={amountIn?.toString()}
               isLoading={isEstimating && inputSource === SwapInputSource.Out}
               onChange={handleAmountInChange}
               onPressEnter={handleSubmit}
@@ -496,7 +533,7 @@ function SwapInitial({
               id="swap-buy"
               labelText={lang('You buy')}
               className={styles.amountInput}
-              value={amountOut}
+              value={amountOut?.toString()}
               isLoading={isEstimating && inputSource === SwapInputSource.In}
               disabled={isReverseProhibited}
               onChange={handleAmountOutChange}
@@ -525,7 +562,8 @@ function SwapInitial({
             amountOut={amountOut}
             swapType={swapType}
             isEstimating={isEstimating}
-            isEnoughTON={isEnoughTON}
+            isEnoughToncoin={isEnoughToncoin}
+            dieselStatus={dieselStatus}
             isSending={isLoading}
             isPriceImpactError={isPriceImpactError}
             canSubmit={canSubmit}

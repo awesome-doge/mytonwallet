@@ -11,12 +11,12 @@ import {
 import { parseAccountId } from '../../../util/account';
 import authApi from '../../../util/authApi';
 import webAuthn from '../../../util/authApi/webAuthn';
-import {
-  getIsNativeBiometricAuthSupported,
-  vibrateOnError,
-  vibrateOnSuccess,
-} from '../../../util/capacitor';
-import { cloneDeep } from '../../../util/iteratees';
+import { getIsNativeBiometricAuthSupported, vibrateOnError, vibrateOnSuccess } from '../../../util/capacitor';
+import { copyTextToClipboard } from '../../../util/clipboard';
+import isMnemonicPrivateKey from '../../../util/isMnemonicPrivateKey';
+import { cloneDeep, compact } from '../../../util/iteratees';
+import { getTranslation } from '../../../util/langProvider';
+import { callActionInMain } from '../../../util/multitab';
 import { pause } from '../../../util/schedulers';
 import { IS_BIOMETRIC_AUTH_SUPPORTED, IS_DELEGATED_BOTTOM_SHEET, IS_ELECTRON } from '../../../util/windowEnvironment';
 import { callApi } from '../../../api';
@@ -30,11 +30,13 @@ import {
   setIsPinAccepted,
   updateAuth,
   updateBiometrics,
+  updateCurrentAccountId,
   updateCurrentAccountState,
   updateHardware,
   updateSettings,
 } from '../../reducers';
 import {
+  selectAccountIdByAddress,
   selectAccounts,
   selectAllHardwareAccounts,
   selectCurrentNetwork,
@@ -45,12 +47,10 @@ import {
   selectNewestTxIds,
 } from '../../selectors';
 
-import { callActionInMain } from '../../../hooks/useDelegatedBottomSheet';
-
 const CREATING_DURATION = 3300;
 const NATIVE_BIOMETRICS_PAUSE_MS = 750;
 
-addActionHandler('restartAuth', (global) => {
+addActionHandler('resetAuth', (global) => {
   if (global.currentAccountId) {
     global = { ...global, appState: AppState.Main };
 
@@ -68,13 +68,28 @@ addActionHandler('restartAuth', (global) => {
 addActionHandler('startCreatingWallet', async (global, actions) => {
   const accounts = selectAccounts(global) ?? {};
   const isFirstAccount = !Object.values(accounts).length;
-  const methodState = isFirstAccount ? AuthState.creatingWallet : AuthState.createBackup;
+  const firstNonHardwareAccount = selectFirstNonHardwareAccount(global);
+  const nextAuthState = firstNonHardwareAccount
+    ? AuthState.createBackup
+    : (isFirstAccount
+      ? AuthState.createWallet
+      // The app only has hardware wallets accounts, which means we need to create a password or biometrics
+      : IS_CAPACITOR
+        ? AuthState.createPin
+        : (IS_BIOMETRIC_AUTH_SUPPORTED ? AuthState.createBiometrics : AuthState.createPassword)
+    );
+
+  global = updateAuth(global, { isLoading: true });
+  setGlobal(global);
 
   const network = selectCurrentNetwork(global);
   const checkResult = await callApi('checkApiAvailability', {
     blockchainKey: 'ton',
     network,
   });
+  global = getGlobal();
+  global = updateAuth(global, { isLoading: undefined });
+  setGlobal(global);
 
   if (!checkResult) {
     actions.showError({ error: ApiCommonError.ServerError });
@@ -83,14 +98,22 @@ addActionHandler('startCreatingWallet', async (global, actions) => {
 
   global = getGlobal();
 
+  if (Boolean(firstNonHardwareAccount) && !global.auth.password) {
+    setGlobal(updateAuth(global, {
+      state: AuthState.checkPassword,
+      error: undefined,
+    }));
+    return;
+  }
+
   const promiseCalls = [
     callApi('generateMnemonic'),
-    ...(isFirstAccount ? [pause(CREATING_DURATION)] : []),
+    ...(!firstNonHardwareAccount ? [pause(CREATING_DURATION)] : []),
   ] as [Promise<Promise<string[]> | undefined>, Promise<void> | undefined];
 
   setGlobal(
     updateAuth(global, {
-      state: methodState,
+      state: nextAuthState,
       method: 'createAccount',
       error: undefined,
     }),
@@ -102,8 +125,6 @@ addActionHandler('startCreatingWallet', async (global, actions) => {
     mnemonic,
     mnemonicCheckIndexes: selectMnemonicForCheck(),
   });
-
-  const firstNonHardwareAccount = selectFirstNonHardwareAccount(global);
 
   if (firstNonHardwareAccount) {
     setGlobal(global);
@@ -312,6 +333,9 @@ addActionHandler('createAccount', async (global, actions, { password, isImportin
   }
 
   const { accountId, address } = result;
+  if (!isImporting) {
+    global = { ...global, appState: AppState.Auth, isAddAccountModalOpen: undefined };
+  }
   global = updateAuth(global, {
     address,
     accountId,
@@ -362,7 +386,7 @@ addActionHandler('createHardwareAccounts', async (global, actions) => {
     }
     const { accountId, address, walletInfo } = wallet;
 
-    currentGlobal = { ...currentGlobal, currentAccountId: accountId };
+    currentGlobal = updateCurrentAccountId(currentGlobal, accountId);
     currentGlobal = createAccount(currentGlobal, accountId, address, {
       isHardware: true,
       ...(walletInfo && {
@@ -376,7 +400,13 @@ addActionHandler('createHardwareAccounts', async (global, actions) => {
     return currentGlobal;
   }, getGlobal());
 
-  setGlobal(updateAuth(updatedGlobal, { isLoading: false }));
+  global = updateAuth(updatedGlobal, { isLoading: false });
+  global = {
+    ...global,
+    shouldForceAccountEdit: true,
+  };
+
+  setGlobal(global);
 
   if (getGlobal().areSettingsOpen) {
     actions.closeSettings();
@@ -394,7 +424,7 @@ addActionHandler('createHardwareAccounts', async (global, actions) => {
 });
 
 addActionHandler('afterCheckMnemonic', (global, actions) => {
-  global = { ...global, currentAccountId: global.auth.accountId! };
+  global = updateCurrentAccountId(global, global.auth.accountId!);
   global = updateCurrentAccountState(global, {});
   global = createAccount(global, global.auth.accountId!, global.auth.address!);
   setGlobal(global);
@@ -414,7 +444,12 @@ addActionHandler('restartCheckMnemonicIndexes', (global) => {
 });
 
 addActionHandler('skipCheckMnemonic', (global, actions) => {
-  global = { ...global, currentAccountId: global.auth.accountId! };
+  if (IS_DELEGATED_BOTTOM_SHEET) {
+    callActionInMain('skipCheckMnemonic');
+    return;
+  }
+
+  global = updateCurrentAccountId(global, global.auth.accountId!);
   global = updateCurrentAccountState(global, {
     isBackupRequired: true,
   });
@@ -428,9 +463,14 @@ addActionHandler('skipCheckMnemonic', (global, actions) => {
 });
 
 addActionHandler('startImportingWallet', (global) => {
+  const firstNonHardwareAccount = selectFirstNonHardwareAccount(global);
+  const state = firstNonHardwareAccount && !global.auth.password
+    ? AuthState.importWalletCheckPassword
+    : AuthState.importWallet;
+
   setGlobal(
     updateAuth(global, {
-      state: AuthState.importWallet,
+      state,
       error: undefined,
       method: 'importMnemonic',
     }),
@@ -446,34 +486,39 @@ addActionHandler('closeAbout', (global) => {
 });
 
 addActionHandler('afterImportMnemonic', async (global, actions, { mnemonic }) => {
-  const isValid = await callApi('validateMnemonic', mnemonic);
-  if (!isValid) {
-    setGlobal(
-      updateAuth(getGlobal(), {
-        error: 'Your mnemonic words are invalid.',
-      }),
-    );
+  mnemonic = compact(mnemonic);
 
-    return;
+  if (!isMnemonicPrivateKey(mnemonic)) {
+    if (!await callApi('validateMnemonic', mnemonic)) {
+      setGlobal(updateAuth(getGlobal(), {
+        error: 'Your mnemonic words are invalid.',
+      }));
+
+      return;
+    }
   }
 
   global = getGlobal();
+
+  const firstNonHardwareAccount = selectFirstNonHardwareAccount(global);
   const hasAccounts = Object.keys(selectAccounts(global) || {}).length > 0;
+  const state = IS_CAPACITOR
+    ? AuthState.importWalletCreatePin
+    : (IS_BIOMETRIC_AUTH_SUPPORTED
+      ? AuthState.importWalletCreateBiometrics
+      : AuthState.importWalletCreatePassword);
+
   global = updateAuth(global, {
     mnemonic,
     error: undefined,
-    ...(!hasAccounts && {
-      state: IS_CAPACITOR
-        ? AuthState.importWalletCreatePin
-        : (IS_BIOMETRIC_AUTH_SUPPORTED
-          ? AuthState.importWalletCreateBiometrics
-          : AuthState.importWalletCreatePassword),
-    }),
+    ...(!firstNonHardwareAccount && { state }),
   });
   setGlobal(global);
 
-  if (!hasAccounts) {
-    actions.requestConfetti();
+  if (!firstNonHardwareAccount) {
+    if (!hasAccounts) {
+      actions.requestConfetti();
+    }
 
     if (IS_CAPACITOR) {
       void vibrateOnSuccess();
@@ -499,7 +544,7 @@ addActionHandler('confirmDisclaimer', (global, actions) => {
 addActionHandler('afterConfirmDisclaimer', (global, actions) => {
   const { accountId, address } = global.auth;
 
-  global = { ...global, currentAccountId: accountId };
+  global = updateCurrentAccountId(global, accountId!);
   global = updateAuth(global, { state: AuthState.ready });
   global = createAccount(global, accountId!, address!);
   setGlobal(global);
@@ -553,11 +598,8 @@ addActionHandler('switchAccount', async (global, actions, payload) => {
   const newestTxIds = selectNewestTxIds(global, accountId);
   await callApi('activateAccount', accountId, newestTxIds);
 
-  global = {
-    ...getGlobal(),
-    currentAccountId: accountId,
-  };
-
+  global = getGlobal();
+  global = updateCurrentAccountId(global, accountId);
   global = clearCurrentTransfer(global);
   global = clearCurrentSwap(global);
   setGlobal(global);
@@ -932,3 +974,55 @@ addActionHandler('closeAuthBackupWalletModal', (global, actions, props) => {
     actions.afterCheckMnemonic();
   }
 });
+
+addActionHandler('copyStorageData', async (global, actions) => {
+  const accountConfigJson = await callApi('fetchAccountConfigForDebugPurposesOnly');
+
+  if (accountConfigJson) {
+    const storageData = JSON.stringify({
+      ...JSON.parse(accountConfigJson),
+      global: reduceGlobalForDebug(),
+    });
+
+    await copyTextToClipboard(storageData);
+
+    actions.showNotification({ message: getTranslation('Copied') });
+  } else {
+    actions.showError({ error: ApiCommonError.Unexpected });
+  }
+});
+
+addActionHandler('importAccountByVersion', async (global, actions, { version }) => {
+  if (IS_DELEGATED_BOTTOM_SHEET) {
+    callActionInMain('importAccountByVersion', { version });
+    return;
+  }
+
+  const accountId = global.currentAccountId!;
+
+  const wallet = await callApi('importNewWalletVersion', accountId, version);
+  global = getGlobal();
+
+  const existAccountId = selectAccountIdByAddress(global, wallet!.address);
+
+  if (existAccountId) {
+    actions.switchAccount({ accountId: existAccountId });
+    return;
+  }
+
+  global = updateCurrentAccountId(global, wallet!.accountId);
+  global = createAccount(global, wallet!.accountId, wallet!.address, undefined, version);
+  setGlobal(global);
+});
+
+function reduceGlobalForDebug() {
+  const reduced = cloneDeep(getGlobal());
+
+  reduced.tokenInfo = {} as any;
+  reduced.swapTokenInfo = {} as any;
+  Object.entries(reduced.byAccountId).forEach(([, state]) => {
+    state.activities = {} as any;
+  });
+
+  return reduced;
+}

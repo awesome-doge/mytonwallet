@@ -1,35 +1,41 @@
-import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning';
-import React, { memo, useEffect, useState } from '../lib/teact/teact';
+import React, { memo, useEffect, useLayoutEffect } from '../lib/teact/teact';
 import { getActions, withGlobal } from '../global';
 
 import { AppState } from '../global/types';
 
-import { INACTIVE_MARKER, IS_CAPACITOR } from '../config';
+import { INACTIVE_MARKER, IS_ANDROID_DIRECT, IS_CAPACITOR } from '../config';
 import { setActiveTabChangeListener } from '../util/activeTabMonitor';
 import buildClassName from '../util/buildClassName';
+import { resolveRender } from '../util/renderPromise';
 import {
-  IS_ANDROID, IS_DELEGATED_BOTTOM_SHEET, IS_DELEGATING_BOTTOM_SHEET, IS_ELECTRON, IS_IOS, IS_LINUX,
+  IS_ANDROID,
+  IS_DELEGATED_BOTTOM_SHEET,
+  IS_DELEGATING_BOTTOM_SHEET,
+  IS_ELECTRON,
+  IS_IOS,
+  IS_LINUX,
 } from '../util/windowEnvironment';
 import { updateSizes } from '../util/windowSize';
+import { callApi } from '../api';
 
+import useBackgroundMode from '../hooks/useBackgroundMode';
 import { useDeviceScreen } from '../hooks/useDeviceScreen';
-import useEffectOnce from '../hooks/useEffectOnce';
 import useFlag from '../hooks/useFlag';
-import useLang from '../hooks/useLang';
-import useLastCallback from '../hooks/useLastCallback';
+import useInterval from '../hooks/useInterval';
 import useSyncEffect from '../hooks/useSyncEffect';
 import useTimeout from '../hooks/useTimeout';
 
 import AppInactive from './AppInactive';
 import Auth from './auth/Auth';
 import DappConnectModal from './dapps/DappConnectModal';
-import DappTransactionModal from './dapps/DappTransactionModal';
+import DappTransferModal from './dapps/DappTransferModal';
 import Dialogs from './Dialogs';
 import ElectronHeader from './electron/ElectronHeader';
 import LedgerModal from './ledger/LedgerModal';
 import Main from './main/Main';
 import AddAccountModal from './main/modals/AddAccountModal';
 import BackupModal from './main/modals/BackupModal';
+import OnRampWidgetModal from './main/modals/OnRampWidgetModal';
 import QrScannerModal from './main/modals/QrScannerModal';
 import SignatureModal from './main/modals/SignatureModal';
 import SwapActivityModal from './main/modals/SwapActivityModal';
@@ -40,6 +46,8 @@ import SettingsModal from './settings/SettingsModal';
 import SwapModal from './swap/SwapModal';
 import TransferModal from './transfer/TransferModal';
 import ConfettiContainer from './ui/ConfettiContainer';
+import InAppBrowser from './ui/InAppBrowser';
+import LoadingOverlay from './ui/LoadingOverlay';
 import Transition from './ui/Transition';
 
 // import Test from './components/test/TestNoRedundancy';
@@ -54,6 +62,9 @@ interface StateProps {
   areSettingsOpen?: boolean;
 }
 
+const APP_UPDATE_INTERVAL = (IS_ELECTRON && !IS_LINUX) || IS_ANDROID_DIRECT
+  ? 5 * 60 * 1000 // 5 min
+  : undefined;
 const PRERENDER_MAIN_DELAY = 1200;
 let mainKey = 0;
 
@@ -71,16 +82,12 @@ function App({
     closeHardwareWalletModal,
     closeSettings,
     cancelCaching,
-    openQrScanner,
     closeQrScanner,
-    showNotification,
-    openDeeplink,
+    checkAppVersion,
   } = getActions();
 
-  const lang = useLang();
   const { isPortrait } = useDeviceScreen();
   const areSettingsInModal = !isPortrait || IS_ELECTRON || IS_DELEGATING_BOTTOM_SHEET || IS_DELEGATED_BOTTOM_SHEET;
-  const [isBarcodeSupported, setIsBarcodeSupported] = useState<boolean>(false);
 
   const [isInactive, markInactive] = useFlag(false);
   const [canPrerenderMain, prerenderMain] = useFlag();
@@ -96,15 +103,7 @@ function App({
     renderingKey === AppState.Auth && !canPrerenderMain ? PRERENDER_MAIN_DELAY : undefined,
   );
 
-  useEffectOnce(() => {
-    if (!IS_CAPACITOR) return;
-
-    BarcodeScanner
-      .isSupported()
-      .then((result) => {
-        setIsBarcodeSupported(result.supported);
-      });
-  });
+  useInterval(checkAppVersion, APP_UPDATE_INTERVAL);
 
   useEffect(() => {
     updateSizes();
@@ -117,28 +116,22 @@ function App({
     });
   }, [markInactive]);
 
+  useBackgroundMode(() => {
+    void callApi('setIsAppFocused', false);
+  }, () => {
+    void callApi('setIsAppFocused', true);
+  });
+
+  useLayoutEffect(() => {
+    document.documentElement.classList.add('is-rendered');
+    resolveRender();
+  }, []);
+
   useSyncEffect(() => {
     if (accountId) {
       mainKey += 1;
     }
   }, [accountId]);
-
-  const handleOpenQrScanner = useLastCallback(async () => {
-    const granted = await requestCameraPermissions();
-
-    if (!granted) {
-      showNotification({
-        message: lang('Permission denied. Please grant camera permission to use the QR code scanner.'),
-      });
-      return;
-    }
-
-    openQrScanner();
-  });
-
-  const handleQrScan = useLastCallback((scanResult) => {
-    openDeeplink({ url: scanResult });
-  });
 
   // eslint-disable-next-line consistent-return
   function renderContent(isActive: boolean, isFrom: boolean, currentKey: number) {
@@ -163,7 +156,6 @@ function App({
             <Main
               key={mainKey}
               isActive={isActive}
-              onQrScanPress={isBarcodeSupported ? handleOpenQrScanner : undefined}
             />
           </Transition>
         );
@@ -206,24 +198,26 @@ function App({
             isOpen={isBackupWalletModalOpen}
             onClose={closeBackupWalletModal}
           />
-          <TransferModal onQrScanPress={isBarcodeSupported ? handleOpenQrScanner : undefined} />
+          <TransferModal />
           <SwapModal />
           <SignatureModal />
           <TransactionModal />
           <SwapActivityModal />
           <DappConnectModal />
-          <DappTransactionModal />
+          <DappTransferModal />
           <AddAccountModal />
+          <OnRampWidgetModal />
           {!IS_DELEGATED_BOTTOM_SHEET && <Notifications />}
           {IS_CAPACITOR && (
             <QrScannerModal
               isOpen={isQrScannerOpen}
               onClose={closeQrScanner}
-              onScan={handleQrScan}
             />
           )}
-          <Dialogs />
+          {!IS_DELEGATED_BOTTOM_SHEET && <Dialogs />}
           {!IS_DELEGATED_BOTTOM_SHEET && <ConfettiContainer />}
+          {IS_CAPACITOR && !IS_DELEGATED_BOTTOM_SHEET && <InAppBrowser />}
+          {!IS_DELEGATED_BOTTOM_SHEET && <LoadingOverlay />}
         </>
       )}
     </>
@@ -244,10 +238,4 @@ export default memo(withGlobal((global): StateProps => {
 async function handleCloseBrowserTab() {
   const tab = await chrome.tabs.getCurrent();
   await chrome.tabs.remove(tab.id!);
-}
-
-async function requestCameraPermissions(): Promise<boolean> {
-  const { camera } = await BarcodeScanner.requestPermissions();
-
-  return camera === 'granted' || camera === 'limited';
 }

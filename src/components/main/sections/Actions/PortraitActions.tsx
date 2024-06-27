@@ -1,17 +1,19 @@
-import type { URLOpenListenerEvent } from '@capacitor/app';
-import { App as CapacitorApp } from '@capacitor/app';
-import React, { memo, useEffect } from '../../../../lib/teact/teact';
+import type { ActionSheetButton } from '@capacitor/action-sheet';
+import { ActionSheet, ActionSheetButtonStyle } from '@capacitor/action-sheet';
+import { BottomSheet } from 'native-bottom-sheet';
+import React, { memo } from '../../../../lib/teact/teact';
 import { getActions } from '../../../../global';
 
-import { ElectronEvent } from '../../../../electron/types';
-
+import { DEFAULT_CEX_SWAP_SECOND_TOKEN_SLUG, TONCOIN_SLUG } from '../../../../config';
 import buildClassName from '../../../../util/buildClassName';
-import { clearLaunchUrl, getLaunchUrl } from '../../../../util/capacitor';
-import { processDeeplink } from '../../../../util/processDeeplink';
+import { vibrate } from '../../../../util/capacitor';
+import { IS_DELEGATING_BOTTOM_SHEET, IS_IOS_APP } from '../../../../util/windowEnvironment';
 
+import useFlag from '../../../../hooks/useFlag';
 import useLang from '../../../../hooks/useLang';
 import useLastCallback from '../../../../hooks/useLastCallback';
 
+import AddBuyModal from '../../../addbuy/AddBuyModal';
 import Button from '../../../ui/Button';
 
 import styles from './PortraitActions.module.scss';
@@ -21,9 +23,9 @@ interface OwnProps {
   isTestnet?: boolean;
   isUnstakeRequested?: boolean;
   onEarnClick: NoneToVoidFunction;
-  onReceiveClick: NoneToVoidFunction;
   isLedger?: boolean;
   isSwapDisabled?: boolean;
+  isOnRampDisabled?: boolean;
 }
 
 function PortraitActions({
@@ -31,49 +33,88 @@ function PortraitActions({
   isTestnet,
   isUnstakeRequested,
   onEarnClick,
-  onReceiveClick,
   isLedger,
   isSwapDisabled,
+  isOnRampDisabled,
 }: OwnProps) {
-  const { startTransfer, startSwap } = getActions();
+  const {
+    startTransfer, startSwap, openOnRampWidgetModal, openReceiveModal,
+  } = getActions();
+
+  const [isAddBuyModalOpened, openAddBuyModal, closeAddBuyModal] = useFlag();
 
   const lang = useLang();
 
   const isSwapAllowed = !isTestnet && !isLedger && !isSwapDisabled;
-  const isStakingAllowed = !isTestnet && !isLedger;
-
-  useEffect(() => {
-    return window.electron?.on(ElectronEvent.DEEPLINK, ({ url }: { url: string }) => {
-      processDeeplink(url);
-    });
-  }, [startTransfer]);
-
-  useEffect(() => {
-    const launchUrl = getLaunchUrl();
-    if (launchUrl) {
-      processDeeplink(launchUrl);
-      clearLaunchUrl();
-    }
-
-    return CapacitorApp.addListener('appUrlOpen', (event: URLOpenListenerEvent) => {
-      processDeeplink(event.url);
-    }).remove;
-  }, [startTransfer]);
+  const isOnRampAllowed = !isTestnet && !isOnRampDisabled;
+  const isStakingAllowed = !isTestnet;
 
   const handleStartSwap = useLastCallback(() => {
-    startSwap({ isPortrait: true });
+    vibrate();
+
+    startSwap();
   });
 
+  const handleStartSwapWidget = () => {
+    startSwap({
+      tokenInSlug: DEFAULT_CEX_SWAP_SECOND_TOKEN_SLUG,
+      tokenOutSlug: TONCOIN_SLUG,
+      amountIn: '100',
+    });
+  };
+
   const handleStartTransfer = useLastCallback(() => {
+    vibrate();
+
     startTransfer({ isPortrait: true });
+  });
+
+  const handleAddBuyClick = useLastCallback(async () => {
+    vibrate();
+
+    if (!IS_IOS_APP) {
+      openAddBuyModal();
+      return;
+    }
+
+    const options: ActionSheetButton[] = [
+      ...(isOnRampAllowed ? [{ title: lang('Buy with Card') }] : []),
+      ...(isSwapAllowed ? [{ title: lang('Buy with Crypto') }] : []),
+      { title: lang('Receive with QR or Invoice') },
+      {
+        title: lang('Cancel'),
+        style: ActionSheetButtonStyle.Cancel,
+      },
+    ];
+
+    const actionByIndex = [
+      ...(isOnRampAllowed ? [openOnRampWidgetModal] : []),
+      ...(isSwapAllowed ? [handleStartSwapWidget] : []),
+      openReceiveModal,
+    ];
+
+    if (IS_DELEGATING_BOTTOM_SHEET) {
+      await BottomSheet.disable();
+    }
+    const result = await ActionSheet.showActions({ options });
+    if (IS_DELEGATING_BOTTOM_SHEET) {
+      await BottomSheet.enable();
+    }
+
+    actionByIndex[result.index]?.();
+  });
+
+  const handleEarnClick = useLastCallback(() => {
+    vibrate();
+    onEarnClick();
   });
 
   return (
     <div className={styles.container}>
       <div className={styles.buttons}>
-        <Button className={styles.button} onClick={onReceiveClick} isSimple>
-          <i className={buildClassName(styles.buttonIcon, 'icon-receive')} aria-hidden />
-          {lang('Receive')}
+        <Button className={styles.button} onClick={handleAddBuyClick} isSimple>
+          <i className={buildClassName(styles.buttonIcon, 'icon-add-buy')} aria-hidden />
+          {lang(isSwapAllowed || isOnRampAllowed ? 'Add / Buy' : 'Add')}
         </Button>
         <Button className={styles.button} onClick={handleStartTransfer} isSimple>
           <i className={buildClassName(styles.buttonIcon, 'icon-send')} aria-hidden />
@@ -88,7 +129,7 @@ function PortraitActions({
         {isStakingAllowed && (
           <Button
             className={buildClassName(styles.button, hasStaking && styles.button_purple)}
-            onClick={onEarnClick}
+            onClick={handleEarnClick}
             isSimple
           >
             <i className={buildClassName(styles.buttonIcon, 'icon-earn')} aria-hidden />
@@ -96,6 +137,15 @@ function PortraitActions({
           </Button>
         )}
       </div>
+
+      <AddBuyModal
+        isOpen={isAddBuyModalOpened}
+        isTestnet={isTestnet}
+        isLedgerWallet={isLedger}
+        isSwapDisabled={isSwapDisabled}
+        isOnRampDisabled={isOnRampDisabled}
+        onClose={closeAddBuyModal}
+      />
     </div>
   );
 }

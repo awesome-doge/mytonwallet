@@ -3,7 +3,7 @@ import React, {
 } from '../../lib/teact/teact';
 import { getActions, withGlobal } from '../../global';
 
-import type { ApiBaseCurrency, ApiToken } from '../../api/types';
+import type { ApiBalanceBySlug, ApiBaseCurrency } from '../../api/types';
 import {
   type AssetPairs,
   SettingsState,
@@ -12,7 +12,6 @@ import {
 } from '../../global/types';
 
 import { ANIMATED_STICKER_MIDDLE_SIZE_PX, TON_BLOCKCHAIN } from '../../config';
-import { Big } from '../../lib/big.js/index.js';
 import {
   selectAvailableUserForSwapTokens,
   selectCurrentAccountState,
@@ -20,21 +19,21 @@ import {
   selectSwapTokens,
 } from '../../global/selectors';
 import buildClassName from '../../util/buildClassName';
+import { toDecimal } from '../../util/decimals';
 import {
   formatCurrency, getShortCurrencySymbol,
 } from '../../util/formatNumber';
-import { getIsAddressValid } from '../../util/getIsAddressValid';
+import { isTonAddressOrDomain } from '../../util/isTonAddressOrDomain';
+import { disableSwipeToClose, enableSwipeToClose } from '../../util/modalSwipeManager';
 import getBlockchainNetworkIcon from '../../util/swap/getBlockchainNetworkIcon';
 import getBlockchainNetworkName from '../../util/swap/getBlockchainNetworkName';
 import { ANIMATED_STICKERS_PATHS } from '../ui/helpers/animatedAssets';
 import { ASSET_LOGO_PATHS } from '../ui/helpers/assetLogos';
 
-import { useDeviceScreen } from '../../hooks/useDeviceScreen';
 import useFocusAfterAnimation from '../../hooks/useFocusAfterAnimation';
 import useHistoryBack from '../../hooks/useHistoryBack';
 import useLang from '../../hooks/useLang';
 import useLastCallback from '../../hooks/useLastCallback';
-import usePrevious from '../../hooks/usePrevious';
 import useScrolledState from '../../hooks/useScrolledState';
 import useSyncEffect from '../../hooks/useSyncEffect';
 
@@ -53,8 +52,7 @@ interface StateProps {
   swapTokens?: UserSwapToken[];
   tokenInSlug?: string;
   pairsBySlug?: Record<string, AssetPairs>;
-  balancesBySlug?: Record<string, string>;
-  tokenInfoBySlug?: Record<string, ApiToken>;
+  balancesBySlug?: ApiBalanceBySlug;
   baseCurrency?: ApiBaseCurrency;
   isLoading?: boolean;
 }
@@ -88,7 +86,6 @@ function TokenSelector({
   tokenInSlug,
   pairsBySlug,
   balancesBySlug,
-  tokenInfoBySlug,
   isActive,
   isLoading,
   onBack,
@@ -118,19 +115,24 @@ function TokenSelector({
     onBack,
   });
 
+  useEffect(() => {
+    if (!isActive) return undefined;
+
+    disableSwipeToClose();
+
+    return enableSwipeToClose;
+  }, [isActive]);
+
   useFocusAfterAnimation(searchInputRef, !isActive);
 
   const {
     handleScroll: handleContentScroll,
   } = useScrolledState();
-  const { isPortrait } = useDeviceScreen();
 
   const [searchValue, setSearchValue] = useState('');
   const [isResetButtonVisible, setIsResetButtonVisible] = useState(false);
   const [renderingKey, setRenderingKey] = useState(SearchState.Initial);
   const [searchTokenList, setSearchTokenList] = useState<Token[]>([]);
-
-  const balancesBySlugPrev = usePrevious(balancesBySlug);
 
   // It is necessary to use useCallback instead of useLastCallback here
   const filterTokens = useCallback((tokens: Token[]) => {
@@ -138,17 +140,10 @@ function TokenSelector({
   }, [pairsBySlug, tokenInSlug]);
 
   const allUnimportedTonTokens = useMemo(() => {
-    const balances = balancesBySlugPrev ?? balancesBySlug ?? {};
-    const tokens = (swapTokens ?? EMPTY_ARRAY).filter(
-      (popularToken) => {
-        const isTonBlockchain = 'blockchain' in popularToken && popularToken.blockchain === TON_BLOCKCHAIN;
-        const isTokenUnimported = balances[popularToken.slug] === undefined;
-        return isTonBlockchain && isTokenUnimported;
-      },
+    return (swapTokens ?? EMPTY_ARRAY).filter(
+      (popularToken) => 'blockchain' in popularToken && popularToken.blockchain === TON_BLOCKCHAIN,
     );
-
-    return tokens;
-  }, [balancesBySlug, balancesBySlugPrev, swapTokens]);
+  }, [swapTokens]);
 
   const { userTokensWithFilter, popularTokensWithFilter, swapTokensWithFilter } = useMemo(() => {
     const currentUserTokens = userTokens ?? EMPTY_ARRAY;
@@ -176,7 +171,12 @@ function TokenSelector({
 
   const filteredTokenList = useMemo(() => {
     const tokensToFilter = isInsideSettings ? allUnimportedTonTokens : swapTokensWithFilter;
-    const lowerCaseSearchValue = searchValue.toLowerCase().trim();
+    const untrimmedSearchValue = searchValue.toLowerCase();
+    const lowerCaseSearchValue = untrimmedSearchValue.trim();
+
+    if (untrimmedSearchValue.length && !lowerCaseSearchValue.length) {
+      return [];
+    }
 
     return tokensToFilter.filter(({
       name, symbol, keywords, isDisabled,
@@ -190,7 +190,7 @@ function TokenSelector({
       const isKeyword = keywords?.some((key) => key.toLowerCase().includes(lowerCaseSearchValue));
 
       return isName || isSymbol || isKeyword;
-    }).sort((a, b) => b.amount - a.amount) ?? [];
+    }).sort((a, b) => Number(b.amount - a.amount)) ?? [];
   }, [allUnimportedTonTokens, isInsideSettings, searchValue, swapTokensWithFilter]);
 
   const resetSearch = () => {
@@ -200,7 +200,7 @@ function TokenSelector({
   useSyncEffect(() => {
     setIsResetButtonVisible(Boolean(searchValue.length));
 
-    const isValidAddress = getIsAddressValid(searchValue);
+    const isValidAddress = isTonAddressOrDomain(searchValue);
     let newRenderingKey = SearchState.Initial;
 
     if (isLoading && isValidAddress) {
@@ -221,7 +221,7 @@ function TokenSelector({
   }, [searchTokenList.length, isLoading, searchValue, token, filteredTokenList]);
 
   useEffect(() => {
-    if (getIsAddressValid(searchValue)) {
+    if (isTonAddressOrDomain(searchValue)) {
       importToken({ address: searchValue, isSwap: true });
       setRenderingKey(SearchState.Loading);
     } else {
@@ -236,13 +236,13 @@ function TokenSelector({
   }, [isActive]);
 
   const handleTokenClick = useLastCallback((selectedToken: Token) => {
-    if (isPortrait) {
-      onBack();
-    } else {
-      onClose();
-    }
+    searchInputRef.current?.blur();
 
-    if (isInsideSettings) {
+    onBack();
+
+    const isTokenUnimported = balancesBySlug?.[selectedToken.slug] === undefined;
+
+    if (isInsideSettings && isTokenUnimported) {
       addToken({ token: selectedToken as UserToken });
     } else {
       addSwapToken({ token: selectedToken as UserSwapToken });
@@ -276,14 +276,14 @@ function TokenSelector({
           className={styles.tokenSelectSearchResetWrapper}
         >
           {isResetButtonVisible && (
-            <i
-              className={buildClassName(
-                styles.tokenSelectSearchReset,
-                'icon-close',
-              )}
-              aria-hidden
+            <button
+              type="button"
+              className={styles.tokenSelectSearchReset}
+              aria-label={lang('Clear')}
               onClick={resetSearch}
-            />
+            >
+              <i className={buildClassName(styles.tokenSelectSearchResetIcon, 'icon-close')} aria-hidden />
+            </button>
           )}
         </Transition>
       </div>
@@ -295,18 +295,16 @@ function TokenSelector({
       currentToken?.symbol.toLowerCase() as keyof typeof ASSET_LOGO_PATHS
     ] ?? currentToken?.image;
     const blockchain = 'blockchain' in currentToken ? currentToken.blockchain : TON_BLOCKCHAIN;
-    const price = 'price' in currentToken
-      ? currentToken.price
-      : tokenInfoBySlug?.[currentToken.slug]
-        ? tokenInfoBySlug?.[currentToken.slug].quote.price
-        : 0;
 
     const isAvailable = !shouldFilter || currentToken.canSwap;
     const descriptionText = isAvailable
       ? getBlockchainNetworkName(blockchain)
       : lang('Unavailable');
-    const currencyHoldings = Big(price).mul(currentToken.amount);
     const handleClick = isAvailable ? () => handleTokenClick(currentToken) : undefined;
+
+    const tokenPrice = currentToken.price === 0
+      ? lang('No Price')
+      : formatCurrency(currentToken.price, shortBaseSymbol, undefined, true);
 
     return (
       <div
@@ -354,14 +352,14 @@ function TokenSelector({
             !isAvailable && styles.tokenTextDisabled,
           )}
           >
-            {formatCurrency(currentToken.amount, currentToken.symbol)}
+            {formatCurrency(toDecimal(currentToken.amount, currentToken?.decimals), currentToken.symbol)}
           </span>
           <span className={buildClassName(
             styles.tokenValue,
             !isAvailable && styles.tokenTextDisabled,
           )}
           >
-            {formatCurrency(currencyHoldings.toNumber(), shortBaseSymbol)}
+            {tokenPrice}
           </span>
         </div>
       </div>
@@ -454,15 +452,10 @@ function TokenSelector({
   }
 
   function renderTokenGroups() {
-    if (isInsideSettings) {
-      return renderTokenGroup(allUnimportedTonTokens, lang('A-Z'));
-    }
-
     return (
       <>
         {renderTokenGroup(userTokensWithFilter, lang('MY'), true)}
         {renderTokenGroup(popularTokensWithFilter, lang('POPULAR'))}
-        {renderTokenGroup(swapTokensWithFilter, lang('A-Z'))}
       </>
     );
   }
@@ -527,7 +520,6 @@ export default memo(withGlobal<OwnProps>((global): StateProps => {
     baseCurrency,
     pairsBySlug: pairs?.bySlug,
     balancesBySlug: balances?.bySlug,
-    tokenInfoBySlug: global.tokenInfo.bySlug,
   };
 })(TokenSelector));
 

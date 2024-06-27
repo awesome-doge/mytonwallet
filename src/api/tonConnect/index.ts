@@ -1,5 +1,5 @@
 // eslint-disable-next-line max-classes-per-file
-import TonWeb from 'tonweb';
+import { Address, Cell } from '@ton/core';
 import type {
   ConnectEventError,
   ConnectItemReply,
@@ -29,24 +29,30 @@ import type {
 import { ApiCommonError, ApiTransactionError } from '../types';
 import { CONNECT_EVENT_ERROR_CODES, SEND_TRANSACTION_ERROR_CODES, SIGN_DATA_ERROR_CODES } from './types';
 
-import { IS_EXTENSION, TON_TOKEN_SLUG } from '../../config';
+import { IS_EXTENSION, LEDGER_NFT_TRANSFER_DISABLED, TONCOIN_SLUG } from '../../config';
 import { parseAccountId } from '../../util/account';
-import { isValidLedgerComment } from '../../util/ledger/utils';
-import { logDebugError } from '../../util/logs';
+import { isLedgerCommentLengthValid } from '../../util/ledger/utils';
+import { logDebug, logDebugError } from '../../util/logs';
 import { fetchJsonMetadata } from '../../util/metadata';
+import safeExec from '../../util/safeExec';
+import { isAscii } from '../../util/stringFormat';
 import blockchains from '../blockchains';
 import { parsePayloadBase64 } from '../blockchains/ton';
 import { fetchKeyPair } from '../blockchains/ton/auth';
 import { LEDGER_SUPPORTED_PAYLOADS } from '../blockchains/ton/constants';
-import { toBase64Address, toRawAddress } from '../blockchains/ton/util/tonweb';
+import { getIsRawAddress, toBase64Address, toRawAddress } from '../blockchains/ton/util/tonCore';
+import { getContractInfo } from '../blockchains/ton/wallet';
 import {
-  fetchStoredAccount, fetchStoredAddress, fetchStoredPublicKey, getCurrentAccountId, getCurrentAccountIdOrFail,
+  fetchStoredAccount,
+  fetchStoredAddress,
+  fetchStoredPublicKey,
+  getCurrentAccountId,
+  getCurrentAccountIdOrFail,
 } from '../common/accounts';
+import { getKnownAddressInfo } from '../common/addresses';
 import { createDappPromise } from '../common/dappPromises';
 import { isUpdaterAlive } from '../common/helpers';
-import {
-  base64ToBytes, bytesToBase64, sha256,
-} from '../common/utils';
+import { bytesToBase64, sha256 } from '../common/utils';
 import * as apiErrors from '../errors';
 import { ApiServerError } from '../errors';
 import { callHook } from '../hooks';
@@ -57,16 +63,14 @@ import {
   deactivateDapp,
   deleteDapp,
   findLastConnectedAccount,
+  getDapp,
   getDappsByOrigin,
-  isDappConnected,
   updateDapp,
 } from '../methods/dapps';
 import { createLocalTransaction } from '../methods/transactions';
 import * as errors from './errors';
-import { BadRequestError } from './errors';
+import { BadRequestError, UnknownAppError } from './errors';
 import { isValidString, isValidUrl } from './utils';
-
-const { Address } = TonWeb.utils;
 
 const ton = blockchains.ton;
 
@@ -88,17 +92,21 @@ export async function connect(
   id: number,
 ): Promise<LocalConnectEvent> {
   try {
+    await openExtensionPopup(true);
+
     onPopupUpdate({
       type: 'dappLoading',
       connectionType: 'connect',
+      isSse: request && 'sseOptions' in request,
     });
 
+    const dappMetadata = await fetchDappMetadata(message.manifestUrl);
+
+    if (!IS_EXTENSION) {
+      request.origin = dappMetadata.origin;
+    }
+
     const { origin } = await validateRequest(request, true);
-    const dapp = {
-      ...await fetchDappMetadata(message.manifestUrl, origin),
-      connectedAt: Date.now(),
-      ...('sseOptions' in request && { sse: request.sseOptions }),
-    };
 
     const addressItem = message.items.find(({ name }) => name === 'ton_addr');
     const proofItem = message.items.find(({ name }) => name === 'ton_proof') as TonProofItem | undefined;
@@ -112,40 +120,40 @@ export async function connect(
       throw new errors.BadRequestError("Missing 'ton_addr'");
     }
 
-    const isOpened = await openExtensionPopup();
     let accountId = await getCurrentAccountOrFail();
-    const isConnected = await isDappConnected(accountId, origin);
 
-    let promiseResult: {
+    const { promiseId, promise } = createDappPromise();
+
+    const dapp = {
+      ...dappMetadata,
+      origin,
+      connectedAt: Date.now(),
+      ...('sseOptions' in request && {
+        sse: request.sseOptions,
+      }),
+    };
+
+    onPopupUpdate({
+      type: 'dappConnect',
+      promiseId,
+      accountId,
+      dapp,
+      permissions: {
+        address: true,
+        proof: !!proof,
+      },
+      proof,
+    });
+
+    const promiseResult: {
       accountId?: string;
       password?: string;
       signature?: string;
-    } | undefined;
+    } | undefined = await promise;
 
-    if (!isConnected || proof) {
-      if (!isOpened) {
-        await openExtensionPopup(true);
-      }
-
-      const { promiseId, promise } = createDappPromise();
-
-      onPopupUpdate({
-        type: 'dappConnect',
-        promiseId,
-        accountId,
-        dapp,
-        permissions: {
-          address: true,
-          proof: !!proof,
-        },
-        proof,
-      });
-
-      promiseResult = await promise;
-
-      accountId = promiseResult!.accountId!;
-      await addDapp(accountId, dapp);
-    }
+    accountId = promiseResult!.accountId!;
+    request.accountId = accountId;
+    await addDapp(accountId, dapp);
 
     const result = await reconnect(request, id);
 
@@ -163,9 +171,19 @@ export async function connect(
       result.payload.items.push(proofReplyItem);
     }
 
+    onPopupUpdate({ type: 'updateDapps' });
+    onPopupUpdate({ type: 'dappConnectComplete' });
+
     return result;
   } catch (err) {
     logDebugError('tonConnect:connect', err);
+
+    safeExec(() => {
+      onPopupUpdate({
+        type: 'dappCloseLoading',
+      });
+    });
+
     return formatConnectError(id, err as Error);
   }
 }
@@ -175,6 +193,10 @@ export async function reconnect(request: ApiDappRequest, id: number): Promise<Lo
     const { origin, accountId } = await validateRequest(request);
 
     activateDapp(accountId, origin);
+    const currentDapp = await getDapp(accountId, origin);
+    if (!currentDapp) {
+      throw new UnknownAppError();
+    }
     await updateDapp(accountId, origin, (dapp) => ({ ...dapp, connectedAt: Date.now() }));
 
     const address = await fetchStoredAddress(accountId);
@@ -202,6 +224,7 @@ export async function disconnect(
 
     await deleteDapp(accountId, origin, true);
     deactivateAccountDapp(accountId);
+    onPopupUpdate({ type: 'updateDapps' });
   } catch (err) {
     logDebugError('tonConnect:disconnect', err);
   }
@@ -216,15 +239,18 @@ export async function sendTransaction(
   message: SendTransactionRpcRequest,
 ): Promise<SendTransactionRpcResponse> {
   try {
-    onPopupUpdate({
-      type: 'dappLoading',
-      connectionType: 'sendTransaction',
-    });
-
     const { origin, accountId } = await validateRequest(request);
 
     const txPayload = JSON.parse(message.params[0]) as TransactionPayload;
-    const messages = txPayload.messages.slice(0, 3);
+
+    if (txPayload.messages.length > 4) {
+      throw new errors.BadRequestError('Payload contains more than 4 messages, which exceeds limit');
+    }
+
+    const { messages, network: dappNetworkRaw } = txPayload;
+    const dappNetwork = dappNetworkRaw
+      ? (dappNetworkRaw === CHAIN.MAINNET ? 'mainnet' : 'testnet')
+      : undefined;
     let validUntil = txPayload.valid_until;
     if (validUntil && validUntil > 10 ** 10) {
       // If milliseconds were passed instead of seconds
@@ -235,9 +261,27 @@ export async function sendTransaction(
     const account = await fetchStoredAccount(accountId);
     const isLedger = !!account.ledger;
 
+    if (dappNetwork && network !== dappNetwork) {
+      throw new errors.BadRequestError(undefined, ApiTransactionError.WrongNetwork);
+    }
+
+    if (txPayload.from && toBase64Address(txPayload.from, false) !== toBase64Address(account.address, false)) {
+      throw new errors.BadRequestError(undefined, ApiTransactionError.WrongAddress);
+    }
+
     await openExtensionPopup(true);
 
-    const { preparedMessages, checkResult } = await checkTransactionMessages(accountId, messages);
+    onPopupUpdate({
+      type: 'dappLoading',
+      connectionType: 'sendTransaction',
+      accountId,
+      isSse: Boolean('sseOptions' in request && request.sseOptions),
+    });
+
+    const {
+      preparedMessages,
+      checkResult,
+    } = await checkTransactionMessages(accountId, messages, network);
 
     const dapp = (await getDappsByOrigin(accountId))[origin];
     const transactionsForRequest = await prepareTransactionForRequest(network, messages, isLedger);
@@ -263,12 +307,14 @@ export async function sendTransaction(
     let boc: string | undefined;
     let successNumber: number | undefined;
     let error: string | undefined;
+    let msgHashes: string[] = [];
 
     if (isLedger) {
       const signedTransfers = response as ApiSignedTransfer[];
       const submitResult = await ton.sendSignedMessages(accountId, signedTransfers);
-      boc = signedTransfers[0].base64;
+      boc = submitResult.firstBoc;
       successNumber = submitResult.successNumber;
+      msgHashes = submitResult.msgHashes;
 
       if (successNumber > 0) {
         if (successNumber < messages.length) {
@@ -288,6 +334,7 @@ export async function sendTransaction(
       } else {
         boc = submitResult.boc;
         successNumber = messages.length;
+        msgHashes = [submitResult.msgHash];
       }
     }
 
@@ -298,15 +345,17 @@ export async function sendTransaction(
     const fromAddress = await fetchStoredAddress(accountId);
     const successTransactions = transactionsForRequest.slice(0, successNumber!);
 
-    successTransactions.forEach(({ amount, normalizedAddress, payload }) => {
+    successTransactions.forEach(({ amount, normalizedAddress, payload }, index) => {
       const comment = payload?.type === 'comment' ? payload.comment : undefined;
+      const msgHash = isLedger ? msgHashes[index] : msgHashes[0];
       createLocalTransaction(accountId, {
         amount,
         fromAddress,
         toAddress: normalizedAddress,
         comment,
         fee: checkResult.fee!,
-        slug: TON_TOKEN_SLUG,
+        slug: TONCOIN_SLUG,
+        inMsgHash: msgHash,
       });
     });
 
@@ -316,6 +365,12 @@ export async function sendTransaction(
     };
   } catch (err) {
     logDebugError('tonConnect:sendTransaction', err);
+
+    safeExec(() => {
+      onPopupUpdate({
+        type: 'dappCloseLoading',
+      });
+    });
 
     let code = SEND_TRANSACTION_ERROR_CODES.UNKNOWN_ERROR;
     let errorMessage = 'Unhandled error';
@@ -361,7 +416,7 @@ export function signData(request: ApiDappRequest, message: SignDataRpcRequest) {
   };
 }
 
-async function checkTransactionMessages(accountId: string, messages: TransactionPayloadMessage[]) {
+async function checkTransactionMessages(accountId: string, messages: TransactionPayloadMessage[], network: ApiNetwork) {
   const preparedMessages = messages.map((msg) => {
     const {
       address,
@@ -371,10 +426,10 @@ async function checkTransactionMessages(accountId: string, messages: Transaction
     } = msg;
 
     return {
-      toAddress: address,
-      amount,
-      payload: payload ? ton.oneCellFromBoc(base64ToBytes(payload)) : undefined,
-      stateInit: stateInit ? ton.oneCellFromBoc(base64ToBytes(stateInit)) : undefined,
+      toAddress: getIsRawAddress(address) ? toBase64Address(address, true, network) : address,
+      amount: BigInt(amount),
+      payload: payload ? Cell.fromBase64(payload) : undefined,
+      stateInit: stateInit ? Cell.fromBase64(stateInit) : undefined,
     };
   });
 
@@ -401,30 +456,50 @@ function prepareTransactionForRequest(network: ApiNetwork, messages: Transaction
       payload: rawPayload,
       stateInit,
     }) => {
-      const isActiveContract = await ton.isAddressInitialized(network, address);
-      // Force non-bounceable for non-initialized recipients
-      const toAddress = toBase64Address(address, isActiveContract);
+      const toAddress = getIsRawAddress(address) ? toBase64Address(address, true, network) : address;
       // Fix address format for `waitTxComplete` to work properly
-      const normalizedAddress = toBase64Address(address);
-      const payload = rawPayload ? await parsePayloadBase64(network, toAddress, rawPayload) : undefined;
+      const normalizedAddress = toBase64Address(address, undefined, network);
+      const { isScam } = getKnownAddressInfo(normalizedAddress) || {};
 
-      if (isLedger && payload) {
-        if (
-          !LEDGER_SUPPORTED_PAYLOADS.includes(payload.type)
-          || (payload.type === 'comment' && !isValidLedgerComment(payload.comment))
-          || (payload.type === 'nft:transfer' && !!payload.forwardPayload)
-        ) {
-          throw new BadRequestError('Unsupported payload', ApiTransactionError.UnsupportedHardwarePayload);
+      const payload = rawPayload
+        ? await parsePayloadBase64(network, toAddress, rawPayload)
+        : undefined;
+
+      if (isLedger) {
+        const isNft = payload?.type === 'nft:transfer';
+        if (isNft) {
+          if (payload.forwardPayload || LEDGER_NFT_TRANSFER_DISABLED) {
+            throw new BadRequestError('Unsupported payload', ApiTransactionError.UnsupportedHardwareNftOperation);
+          }
+        } else {
+          const { isLedgerAllowed, codeHash } = await getContractInfo(network, toAddress);
+          if (!isLedgerAllowed) {
+            logDebug('Unsupported contract', toAddress, codeHash);
+            throw new BadRequestError('Unsupported contract', ApiTransactionError.UnsupportedHardwareContract);
+          }
+
+          if (payload) {
+            if (!LEDGER_SUPPORTED_PAYLOADS.includes(payload.type)) {
+              throw new BadRequestError('Unsupported payload', ApiTransactionError.UnsupportedHardwarePayload);
+            }
+            if (payload.type === 'comment' && !isAscii(payload.comment)) {
+              throw new BadRequestError('Unsupported payload', ApiTransactionError.NonAsciiCommentForHardwareOperation);
+            }
+            if (payload.type === 'comment' && !isLedgerCommentLengthValid(payload.comment)) {
+              throw new BadRequestError('Unsupported payload', ApiTransactionError.TooLongCommentForHardwareOperation);
+            }
+          }
         }
       }
 
       return {
         toAddress,
-        amount,
+        amount: BigInt(amount),
         rawPayload,
         payload,
         stateInit,
         normalizedAddress,
+        isScam,
       };
     },
   ));
@@ -464,6 +539,7 @@ function formatConnectError(id: number, error: Error): ConnectEventError {
 
 async function buildTonAddressReplyItem(accountId: string, address: string): Promise<ConnectItemReply> {
   const { network } = parseAccountId(accountId);
+
   const [stateInit, publicKey] = await Promise.all([
     ton.getWalletStateInit(accountId),
     fetchStoredPublicKey(accountId),
@@ -473,7 +549,9 @@ async function buildTonAddressReplyItem(accountId: string, address: string): Pro
     address: toRawAddress(address),
     network: network === 'mainnet' ? CHAIN.MAINNET : CHAIN.TESTNET,
     publicKey,
-    walletStateInit: stateInit,
+    walletStateInit: stateInit
+      .toBoc({ idx: true, crc32: true })
+      .toString('base64'),
   };
 }
 
@@ -493,14 +571,14 @@ async function signTonProof(
   const domainLengthBuffer = Buffer.allocUnsafe(4);
   domainLengthBuffer.writeInt32LE(domainBuffer.byteLength);
 
-  const address = new Address(walletAddress);
+  const address = Address.parse(walletAddress);
 
   const addressWorkchainBuffer = Buffer.allocUnsafe(4);
-  addressWorkchainBuffer.writeInt32BE(address.wc);
+  addressWorkchainBuffer.writeInt32BE(address.workChain);
 
   const addressBuffer = Buffer.concat([
     addressWorkchainBuffer,
-    Buffer.from(address.hashPart),
+    address.hash,
   ]);
 
   const messageBuffer = Buffer.concat([

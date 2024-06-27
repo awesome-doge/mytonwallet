@@ -1,7 +1,10 @@
 import type { RefObject } from 'react';
 import type { BottomSheetKeys } from 'native-bottom-sheet';
+import { BottomSheet } from 'native-bottom-sheet';
 import type { TeactNode } from '../../lib/teact/teact';
-import React, { useEffect, useLayoutEffect, useRef } from '../../lib/teact/teact';
+import React, {
+  useEffect, useLayoutEffect, useRef, useState,
+} from '../../lib/teact/teact';
 
 import { ANIMATION_END_DELAY, IS_EXTENSION } from '../../config';
 import buildClassName from '../../util/buildClassName';
@@ -17,11 +20,13 @@ import { useDelegatedBottomSheet } from '../../hooks/useDelegatedBottomSheet';
 import { useDelegatingBottomSheet } from '../../hooks/useDelegatingBottomSheet';
 import { useDeviceScreen } from '../../hooks/useDeviceScreen';
 import { dispatchHeavyAnimationEvent } from '../../hooks/useHeavyAnimationCheck';
+import useHideBrowser from '../../hooks/useHideBrowser';
 import useHistoryBack from '../../hooks/useHistoryBack';
 import useLang from '../../hooks/useLang';
 import useShowTransition from '../../hooks/useShowTransition';
 
 import Button from './Button';
+import { getInAppBrowser } from './InAppBrowser';
 import Portal from './Portal';
 
 import styles from './Modal.module.scss';
@@ -50,6 +55,7 @@ type OwnProps = {
 
 export const CLOSE_DURATION = 350;
 export const CLOSE_DURATION_PORTRAIT = IS_ANDROID ? 200 : 500;
+const SCROLL_CONTENT_CHECK_THRESHOLD_MS = 500;
 
 function Modal({
   dialogRef,
@@ -78,9 +84,13 @@ function Modal({
 
   // eslint-disable-next-line no-null/no-null
   const localDialogRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line no-null/no-null
+  const swipeDownDateRef = useRef<number>(null);
   dialogRef ||= localDialogRef;
 
   const { isPortrait } = useDeviceScreen();
+
+  onCloseAnimationEnd = useHideBrowser(isOpen, isCompact, onCloseAnimationEnd);
 
   const animationDuration = isPortrait ? CLOSE_DURATION_PORTRAIT : CLOSE_DURATION;
   const { shouldRender, transitionClassNames } = useShowTransition(
@@ -98,6 +108,13 @@ function Modal({
     isActive: isOpen,
     onBack: onClose,
   });
+
+  useEffect(() => {
+    if (!IS_DELEGATED_BOTTOM_SHEET || !isCompact) return;
+
+    // Expand NBS to full size for a compact modal inside NBS
+    BottomSheet.toggleSelfFullSize({ isFullSize: !!isOpen });
+  }, [isCompact, isOpen]);
 
   useEffect(
     () => (isOpen ? captureKeyboardListeners({
@@ -124,8 +141,8 @@ function Modal({
     }
 
     return captureEvents(modalRef.current!, {
-      onSwipe: (e, direction) => {
-        if (direction === SwipeDirection.Down && !windowSize.getIsKeyboardVisible() && !getIsSwipeToCloseDisabled()) {
+      onSwipe: (e: Event, direction: SwipeDirection) => {
+        if (direction === SwipeDirection.Down && getCanCloseModal(swipeDownDateRef, e.target as HTMLElement)) {
           onClose();
           return true;
         }
@@ -135,9 +152,31 @@ function Modal({
     });
   }, [isOpen, isPortrait, isSlideUp, onClose]);
 
-  const isDelegatingToNative = useDelegatingBottomSheet(nativeBottomSheetKey, isPortrait, isOpen, onClose);
+  // Make sure to hide browser before presenting modals
+  const [isBrowserHidden, setIsBrowserHidden] = useState(false);
+  useEffect(() => {
+    if (!isOpen) {
+      setIsBrowserHidden(false); // Reset to re-hide it next time
+      return;
+    }
+    const browser = getInAppBrowser();
+    browser?.hide().then(() => {
+      setIsBrowserHidden(true);
+    });
+  }, [isOpen]);
+
+  const isDelegatingToNative = useDelegatingBottomSheet(nativeBottomSheetKey,
+    isPortrait,
+    isOpen && (!getInAppBrowser() || isBrowserHidden),
+    onClose);
+
   useDelegatedBottomSheet(
-    nativeBottomSheetKey, isOpen, onClose, dialogRef, forceFullNative, noResetFullNativeOnBlur,
+    nativeBottomSheetKey,
+    isOpen && (!getInAppBrowser() || isBrowserHidden),
+    onClose,
+    dialogRef,
+    forceFullNative,
+    noResetFullNativeOnBlur,
   );
 
   if (!shouldRender) {
@@ -173,6 +212,7 @@ function Modal({
     transitionClassNames,
     isSlideUp && styles.slideUpAnimation,
     isCompact && styles.compact,
+    isCompact && 'is-compact-modal',
     forceBottomSheet && styles.forceBottomSheet,
     isDelegatingToNative && styles.delegatingToNative,
   );
@@ -205,3 +245,19 @@ function Modal({
 }
 
 export default freezeWhenClosed(Modal);
+
+function getCanCloseModal(lastScrollRef: { current: number | null }, el?: HTMLElement) {
+  if (windowSize.getIsKeyboardVisible() || getIsSwipeToCloseDisabled()) {
+    return false;
+  }
+
+  const now = Date.now();
+  if (lastScrollRef.current && now - lastScrollRef.current < SCROLL_CONTENT_CHECK_THRESHOLD_MS) {
+    return false;
+  }
+
+  lastScrollRef.current = now;
+  const scrollEl = el?.closest('.custom-scroll');
+
+  return !scrollEl || scrollEl.scrollTop === 0;
+}

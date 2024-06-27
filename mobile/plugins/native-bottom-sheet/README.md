@@ -16,18 +16,16 @@ npx cap sync
 * [`prepare()`](#prepare)
 * [`applyScrollPatch()`](#applyscrollpatch)
 * [`clearScrollPatch()`](#clearscrollpatch)
+* [`disable()`](#disable)
+* [`enable()`](#enable)
 * [`delegate(...)`](#delegate)
 * [`release(...)`](#release)
 * [`openSelf(...)`](#openself)
 * [`closeSelf(...)`](#closeself)
-* [`setSelfSize(...)`](#setselfsize)
-* [`callActionInMain(...)`](#callactioninmain)
-* [`callActionInNative(...)`](#callactioninnative)
+* [`toggleSelfFullSize(...)`](#toggleselffullsize)
 * [`openInMain(...)`](#openinmain)
 * [`addListener('delegate', ...)`](#addlistenerdelegate)
 * [`addListener('move', ...)`](#addlistenermove)
-* [`addListener('callActionInMain', ...)`](#addlistenercallactioninmain)
-* [`addListener('callActionInNative', ...)`](#addlistenercallactioninnative)
 * [`addListener('openInMain', ...)`](#addlisteneropeninmain)
 * [Interfaces](#interfaces)
 * [Type Aliases](#type-aliases)
@@ -59,6 +57,24 @@ applyScrollPatch() => Promise<void>
 
 ```typescript
 clearScrollPatch() => Promise<void>
+```
+
+--------------------
+
+
+### disable()
+
+```typescript
+disable() => Promise<void>
+```
+
+--------------------
+
+
+### enable()
+
+```typescript
+enable() => Promise<void>
 ```
 
 --------------------
@@ -116,41 +132,15 @@ closeSelf(options: { key: BottomSheetKeys; }) => Promise<void>
 --------------------
 
 
-### setSelfSize(...)
+### toggleSelfFullSize(...)
 
 ```typescript
-setSelfSize(options: { size: 'half' | 'full'; }) => Promise<void>
+toggleSelfFullSize(options: { isFullSize: boolean; }) => Promise<void>
 ```
 
-| Param         | Type                                     |
-| ------------- | ---------------------------------------- |
-| **`options`** | <code>{ size: 'half' \| 'full'; }</code> |
-
---------------------
-
-
-### callActionInMain(...)
-
-```typescript
-callActionInMain(options: { name: string; optionsJson: string; }) => Promise<void>
-```
-
-| Param         | Type                                                |
-| ------------- | --------------------------------------------------- |
-| **`options`** | <code>{ name: string; optionsJson: string; }</code> |
-
---------------------
-
-
-### callActionInNative(...)
-
-```typescript
-callActionInNative(options: { name: string; optionsJson: string; }) => Promise<void>
-```
-
-| Param         | Type                                                |
-| ------------- | --------------------------------------------------- |
-| **`options`** | <code>{ name: string; optionsJson: string; }</code> |
+| Param         | Type                                  |
+| ------------- | ------------------------------------- |
+| **`options`** | <code>{ isFullSize: boolean; }</code> |
 
 --------------------
 
@@ -200,38 +190,6 @@ addListener(eventName: 'move', handler: () => void) => Promise<PluginListenerHan
 --------------------
 
 
-### addListener('callActionInMain', ...)
-
-```typescript
-addListener(eventName: 'callActionInMain', handler: (options: { name: string; optionsJson: string; }) => void) => Promise<PluginListenerHandle> & PluginListenerHandle
-```
-
-| Param           | Type                                                                      |
-| --------------- | ------------------------------------------------------------------------- |
-| **`eventName`** | <code>'callActionInMain'</code>                                           |
-| **`handler`**   | <code>(options: { name: string; optionsJson: string; }) =&gt; void</code> |
-
-**Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt; & <a href="#pluginlistenerhandle">PluginListenerHandle</a></code>
-
---------------------
-
-
-### addListener('callActionInNative', ...)
-
-```typescript
-addListener(eventName: 'callActionInNative', handler: (options: { name: string; optionsJson: string; }) => void) => Promise<PluginListenerHandle> & PluginListenerHandle
-```
-
-| Param           | Type                                                                      |
-| --------------- | ------------------------------------------------------------------------- |
-| **`eventName`** | <code>'callActionInNative'</code>                                         |
-| **`handler`**   | <code>(options: { name: string; optionsJson: string; }) =&gt; void</code> |
-
-**Returns:** <code>Promise&lt;<a href="#pluginlistenerhandle">PluginListenerHandle</a>&gt; & <a href="#pluginlistenerhandle">PluginListenerHandle</a></code>
-
---------------------
-
-
 ### addListener('openInMain', ...)
 
 ```typescript
@@ -263,6 +221,6 @@ addListener(eventName: 'openInMain', handler: (options: { key: BottomSheetKeys; 
 
 #### BottomSheetKeys
 
-<code>'initial' | 'receive' | 'invoice' | 'transfer' | 'swap' | 'stake' | 'unstake' | 'staking-info' | 'transaction-info' | 'swap-activity' | 'backup' | 'add-account' | 'settings' | 'qr-scanner' | 'dapp-connect' | 'dapp-transaction' | 'disclaimer' | 'backup-warning'</code>
+<code>'initial' | 'receive' | 'invoice' | 'transfer' | 'swap' | 'stake' | 'unstake' | 'staking-info' | 'vesting-info' | 'vesting-confirm' | 'transaction-info' | 'swap-activity' | 'backup' | 'add-account' | 'settings' | 'qr-scanner' | 'dapp-connect' | 'dapp-transfer' | 'disclaimer' | 'backup-warning' | 'onramp-widget'</code>
 
 </docgen-api>

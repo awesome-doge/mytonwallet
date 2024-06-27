@@ -1,3 +1,5 @@
+import type { ApiNft } from './misc';
+
 export type ApiCommentPayload = {
   type: 'comment';
   comment: string;
@@ -10,25 +12,37 @@ export type ApiEncryptedCommentPayload = {
 
 export type ApiNftTransferPayload = {
   type: 'nft:transfer';
-  queryId: string;
+  queryId: bigint;
   newOwner: string;
   responseDestination: string;
   customPayload?: string;
-  forwardAmount: string;
+  forwardAmount: bigint;
   forwardPayload?: string;
   // Specific to UI
   nftAddress: string;
   nftName?: string;
+  nft?: ApiNft;
+  comment?: string;
+};
+
+export type ApiNftOwnershipAssignedPayload = {
+  type: 'nft:ownership-assigned';
+  queryId: bigint;
+  prevOwner: string;
+  // Specific to UI
+  nftAddress: string;
+  nft?: ApiNft;
+  comment?: string;
 };
 
 export type ApiTokensTransferPayload = {
   type: 'tokens:transfer';
-  queryId: string;
-  amount: string;
+  queryId: bigint;
+  amount: bigint;
   destination: string;
   responseDestination: string;
   customPayload?: string;
-  forwardAmount: string;
+  forwardAmount: bigint;
   forwardPayload?: string;
   // Specific to UI
   slug: string;
@@ -36,8 +50,8 @@ export type ApiTokensTransferPayload = {
 
 export type ApiTokensTransferNonStandardPayload = {
   type: 'tokens:transfer-non-standard';
-  queryId: string;
-  amount: string;
+  queryId: bigint;
+  amount: bigint;
   destination: string;
   // Specific to UI
   slug: string;
@@ -50,8 +64,8 @@ export type ApiUnknownPayload = {
 
 export type ApiTokensBurnPayload = {
   type: 'tokens:burn';
-  queryId: string;
-  amount: string;
+  queryId: bigint;
+  amount: bigint;
   address: string;
   customPayload?: string;
   // Specific to UI
@@ -61,22 +75,23 @@ export type ApiTokensBurnPayload = {
 
 export type ApiLiquidStakingDepositPayload = {
   type: 'liquid-staking:deposit';
-  queryId: string;
+  queryId: bigint;
 };
 
 export type ApiLiquidStakingWithdrawalNftPayload = {
   type: 'liquid-staking:withdrawal-nft';
-  queryId: string;
+  queryId: bigint;
 };
 
 export type ApiLiquidStakingWithdrawalPayload = {
   type: 'liquid-staking:withdrawal';
-  queryId: string;
+  queryId: bigint;
 };
 
 export type ApiParsedPayload = ApiCommentPayload
 | ApiEncryptedCommentPayload
 | ApiNftTransferPayload
+| ApiNftOwnershipAssignedPayload
 | ApiTokensTransferPayload
 | ApiTokensTransferNonStandardPayload
 | ApiUnknownPayload

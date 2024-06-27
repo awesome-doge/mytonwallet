@@ -1,14 +1,17 @@
-@import "../../styles/mixins";
-
 .wrapper {
   user-select: none;
 
   position: relative;
+
+  &.inPortal {
+    position: absolute;
+    z-index: var(--z-portal-menu);
+  }
 }
 
 .bubble {
   --offset-y: calc(100% + 0.5rem);
-  --offset-x: 0;
+  --offset-x: -0.25rem;
 
   position: absolute;
   z-index: var(--z-menu-bubble);
@@ -28,6 +31,8 @@
 
   transition: var(--dropdown-transition) !important;
 
+  scrollbar-width: none !important;
+
   &:global(.open) {
     transform: scale(1);
   }
@@ -45,11 +50,11 @@
   }
 
   &.bottom {
-    bottom: var(--offset-y);
+    bottom: var(--offset-y-value, var(--offset-y));
   }
 
   &.left {
-    left: var(--offset-x);
+    left: var(--offset-x-value, var(--offset-x));
   }
 
   &.right {
@@ -58,6 +63,10 @@
 
   :global(html.animation-level-0) & {
     transition: var(--no-animation-transition) !important;
+  }
+
+  &::-webkit-scrollbar {
+    display: none !important;
   }
 }
 
@@ -76,6 +85,7 @@
 }
 
 .suggestion {
+  --offset-x: 0;
   --offset-y: calc(100% - 0.5rem);
 
   transform: scaleY(0.5) !important;
@@ -84,7 +94,7 @@
   overflow: auto;
 
   width: 100%;
-  max-height: 16rem;
+  max-height: min(60vh, 17rem);
   padding: 0.375rem;
 
   &:global(.open) {
@@ -93,33 +103,32 @@
 }
 
 .dropdown {
-  --offset-y: calc(100% - 1.25rem);
+  --offset-y: 0.25rem;
 
-  transform: translateY(-0.375rem) !important;
+  transform: translate(var(--translate-x, 0), -0.375rem) !important;
 
   overflow: auto;
   overflow-y: scroll;
 
   min-width: auto;
-  max-height: 16rem;
+  max-height: min(60vh, 17rem);
   padding: 0.5rem;
-
-  @include adapt-padding-to-scrollbar(0.5rem);
 
   :global(html.animation-level-0) &,
   &:global(.open) {
-    transform: translateY(0) !important;
+    transform: translate(var(--translate-x, 0), 0) !important;
   }
 
   &.right {
     --offset-x: -0.75rem;
+    --offset-y: 0;
   }
 
   &.bottom {
-    transform: translateY(0.375rem) !important;
+    transform: translate(var(--translate-x, 0), 0.375rem) !important;
 
     &:global(.open) {
-      transform: translateY(0) !important;
+      transform: translate(var(--translate-x, 0), 0) !important;
     }
   }
 }

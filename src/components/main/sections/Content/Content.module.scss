@@ -1,6 +1,7 @@
 @import "../../../../styles/mixins";
 
 .contentPanel,
+.landscapeContentPanel,
 .container {
   display: flex;
   flex: 1 1 auto;
@@ -27,12 +28,26 @@
   }
 }
 
-.tabs {
+.tabsContainer {
   position: relative;
-  z-index: 1;
+  z-index: 2;
+
+  flex-shrink: 0;
 
   height: 2.75rem;
-  padding: 0 2.5rem;
+
+  .portraitContainer & {
+    position: sticky;
+    top: 3.75rem;
+
+    width: 100%;
+    margin: 0 auto;
+  }
+}
+
+.tabs {
+  height: 2.75rem;
+  padding: 0 1.5rem;
 
   .landscapeContainer & {
     justify-content: flex-start;
@@ -48,19 +63,16 @@
     position: sticky;
     top: 3.75rem;
 
-    overflow: visible;
-
     width: 100%;
     max-width: 27rem;
-    margin: 0 auto;
 
     &::after {
       content: '';
 
       position: absolute;
-      bottom: 0.0625rem;
+      bottom: 0;
       left: 50%;
-      transform: translateX(-50%);
+      transform: translate(-50%, -0.015625rem);
 
       width: 100vw;
       height: 0.0625rem;
@@ -76,6 +88,11 @@
     // Fix for opera, dead zone of 37 pixels in extension window on windows
     :global(html.is-windows.is-opera.is-extension) & {
       top: 4.75rem;
+    }
+
+    // Sticky header height - electron header height
+    :global(html.is-electron) & {
+      top: 0.75rem;
     }
   }
 }
@@ -129,7 +146,7 @@
       min-height: calc(100vh - 5.375rem - var(--status-bar-height, 0px)) !important;
     }
 
-    // Fix for opera, dead zone of 37 pixels in extension window on windows
+    // Fix for opera, dead zone of 37 pixels in extension window on Windows
     :global(html.is-windows.is-opera.is-extension) & {
       min-height: calc(100vh - 7.5rem) !important;
     }
@@ -145,6 +162,10 @@
 
     min-height: 0;
   }
+}
+
+.landscapeContentPanel {
+  overflow: hidden;
 }
 
 .contentPanel {

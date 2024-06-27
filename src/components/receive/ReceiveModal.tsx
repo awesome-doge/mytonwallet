@@ -1,11 +1,11 @@
 import { BottomSheet } from 'native-bottom-sheet';
-import React, { memo, useEffect } from '../../lib/teact/teact';
+import React, { memo } from '../../lib/teact/teact';
+import { getActions, withGlobal } from '../../global';
 
 import { IS_DELEGATED_BOTTOM_SHEET } from '../../util/windowEnvironment';
 
 import { useOpenFromMainBottomSheet } from '../../hooks/useDelegatedBottomSheet';
 import { useOpenFromNativeBottomSheet } from '../../hooks/useDelegatingBottomSheet';
-import { useDeviceScreen } from '../../hooks/useDeviceScreen';
 import useFlag from '../../hooks/useFlag';
 import useLang from '../../hooks/useLang';
 import useLastCallback from '../../hooks/useLastCallback';
@@ -16,27 +16,24 @@ import InvoiceModal from './InvoiceModal';
 
 import styles from './ReceiveModal.module.scss';
 
-type Props = {
-  isOpen: boolean;
-  onClose: () => void;
+type StateProps = {
+  isOpen?: boolean;
 };
 
-function ReceiveModal({ isOpen, onClose }: Props) {
+function ReceiveModal({
+  isOpen,
+}: StateProps) {
+  const {
+    closeReceiveModal,
+  } = getActions();
   const lang = useLang();
-  const { isPortrait } = useDeviceScreen();
   const [isInvoiceModalOpen, openInvoiceModal, closeInvoiceModal] = useFlag(false);
 
   useOpenFromNativeBottomSheet('invoice', openInvoiceModal);
   useOpenFromMainBottomSheet('invoice', openInvoiceModal);
 
-  useEffect(() => {
-    if (isOpen && !isPortrait) {
-      onClose();
-    }
-  }, [isOpen, isPortrait, onClose]);
-
   const handleOpenInvoiceModal = useLastCallback(() => {
-    onClose();
+    closeReceiveModal();
 
     if (IS_DELEGATED_BOTTOM_SHEET) {
       BottomSheet.openInMain({ key: 'invoice' });
@@ -46,7 +43,7 @@ function ReceiveModal({ isOpen, onClose }: Props) {
   });
 
   const handleClose = useLastCallback(() => {
-    onClose();
+    closeReceiveModal();
     closeInvoiceModal();
   });
 
@@ -54,11 +51,11 @@ function ReceiveModal({ isOpen, onClose }: Props) {
     <>
       <Modal
         isOpen={isOpen}
-        title={lang('Receive TON')}
+        title={lang('Receive')}
         hasCloseButton
         contentClassName={styles.content}
         nativeBottomSheetKey="receive"
-        onClose={onClose}
+        onClose={closeReceiveModal}
       >
         <Content
           isOpen={isOpen}
@@ -70,4 +67,8 @@ function ReceiveModal({ isOpen, onClose }: Props) {
   );
 }
 
-export default memo(ReceiveModal);
+export default memo(withGlobal((global): StateProps => {
+  return {
+    isOpen: global.isReceiveModalOpen,
+  };
+})(ReceiveModal));

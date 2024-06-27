@@ -18,6 +18,7 @@ interface OwnProps {
   isOpen: boolean;
   onClose: () => void;
   isTestnet?: boolean;
+  isCopyStorageEnabled?: boolean;
 }
 
 const NETWORK_OPTIONS = [{
@@ -28,14 +29,23 @@ const NETWORK_OPTIONS = [{
   name: 'Testnet',
 }];
 
-function SettingsDeveloperOptions({ isOpen, onClose, isTestnet }: OwnProps) {
+function SettingsDeveloperOptions({
+  isOpen, onClose, isTestnet, isCopyStorageEnabled,
+}: OwnProps) {
   const {
     startChangingNetwork,
+    copyStorageData,
   } = getActions();
   const lang = useLang();
+  const currentNetwork = NETWORK_OPTIONS[isTestnet ? 1 : 0].value;
 
   const handleNetworkChange = useLastCallback((newNetwork: string) => {
+    if (currentNetwork === newNetwork) {
+      return;
+    }
+
     startChangingNetwork({ network: newNetwork as ApiNetwork });
+    onClose();
   });
 
   return (
@@ -48,17 +58,32 @@ function SettingsDeveloperOptions({ isOpen, onClose, isTestnet }: OwnProps) {
       <div className={styles.developerTitle}>
         {lang('Developer Options')}
       </div>
+
       <div className={styles.settingsBlock}>
         <Dropdown
           label={lang('Network')}
           items={NETWORK_OPTIONS}
-          selectedValue={NETWORK_OPTIONS[isTestnet ? 1 : 0].value}
+          selectedValue={currentNetwork}
           theme="light"
           arrow="chevron"
           className={buildClassName(styles.item, styles.item_small)}
           onChange={handleNetworkChange}
         />
       </div>
+
+      {isCopyStorageEnabled && (
+        <>
+          <p className={styles.blockTitle}>{lang('Dangerous')}</p>
+          <div className={styles.settingsBlock}>
+            <div className={buildClassName(styles.item, styles.item_small)} onClick={() => copyStorageData()}>
+              {lang('Copy Storage Data')}
+
+              <i className={buildClassName(styles.iconChevronRight, 'icon-copy')} aria-hidden />
+            </div>
+          </div>
+        </>
+      )}
+
       <Button
         className={styles.developerCloseButton}
         onClick={onClose}

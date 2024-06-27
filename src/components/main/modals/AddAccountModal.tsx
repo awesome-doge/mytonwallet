@@ -1,9 +1,9 @@
 import React, { memo, useState } from '../../../lib/teact/teact';
 import { getActions, getGlobal, withGlobal } from '../../../global';
 
-import type { Account, HardwareConnectState } from '../../../global/types';
 import type { LedgerWalletInfo } from '../../../util/ledger/types';
 import { ApiCommonError } from '../../../api/types';
+import { type Account, type HardwareConnectState, SettingsState } from '../../../global/types';
 
 import { ANIMATED_STICKER_BIG_SIZE_PX, MNEMONIC_COUNT } from '../../../config';
 import renderText from '../../../global/helpers/renderText';
@@ -14,6 +14,7 @@ import { IS_LEDGER_SUPPORTED } from '../../../util/windowEnvironment';
 import { callApi } from '../../../api';
 import { ANIMATED_STICKERS_PATHS } from '../../ui/helpers/animatedAssets';
 
+import useFlag from '../../../hooks/useFlag';
 import useLang from '../../../hooks/useLang';
 import useLastCallback from '../../../hooks/useLastCallback';
 
@@ -40,6 +41,7 @@ interface StateProps {
   hardwareState?: HardwareConnectState;
   isLedgerConnected?: boolean;
   isTonAppConnected?: boolean;
+  isOtherVersionsExist?: boolean;
 }
 
 const enum RenderingState {
@@ -60,6 +62,7 @@ function AddAccountModal({
   hardwareState,
   isLedgerConnected,
   isTonAppConnected,
+  isOtherVersionsExist,
 }: StateProps) {
   const {
     addAccount,
@@ -67,12 +70,15 @@ function AddAccountModal({
     closeAddAccountModal,
     afterSelectHardwareWallets,
     showError,
+    openSettingsWithState,
+    clearAccountLoading,
   } = getActions();
 
   const lang = useLang();
   const [renderingKey, setRenderingKey] = useState<number>(RenderingState.Initial);
 
   const [isNewAccountImporting, setIsNewAccountImporting] = useState<boolean>(false);
+  const [isCheckingApiAvailability, markCheckingApiAvailability, unmarkCheckingApiAvailability] = useFlag(false);
 
   const handleBackClick = useLastCallback(() => {
     setRenderingKey(RenderingState.Initial);
@@ -82,6 +88,7 @@ function AddAccountModal({
   const handleModalClose = useLastCallback(() => {
     setRenderingKey(RenderingState.Initial);
     setIsNewAccountImporting(false);
+    clearAccountLoading();
   });
 
   const handleNewAccountClick = useLastCallback(async () => {
@@ -93,9 +100,11 @@ function AddAccountModal({
       return;
     }
 
+    markCheckingApiAvailability();
     const isApiAvailable = await callApi('checkApiAvailability', {
       accountId: getGlobal().currentAccountId!,
     });
+    unmarkCheckingApiAvailability();
 
     if (isApiAvailable) {
       setRenderingKey(RenderingState.Password);
@@ -139,6 +148,11 @@ function AddAccountModal({
     addAccount({ method: isNewAccountImporting ? 'importMnemonic' : 'createAccount', password });
   });
 
+  const handleOpenSettingWalletVersion = useLastCallback(() => {
+    closeAddAccountModal();
+    openSettingsWithState({ state: SettingsState.WalletVersion });
+  });
+
   function renderSelector(isActive?: boolean) {
     return (
       <>
@@ -155,20 +169,22 @@ function AddAccountModal({
         <p className={styles.modalText}>
           {renderText(lang('$add_account_description1'))}
         </p>
-        <p className={styles.modalText}>
-          {renderText(lang('$add_account_description2'))}
-        </p>
 
         <div className={styles.modalButtons}>
           <Button
             isPrimary
             className={buildClassName(styles.button, styles.button_single)}
+            isLoading={isCheckingApiAvailability}
             onClick={handleNewAccountClick}
           >
             {lang('Create Wallet')}
           </Button>
-          <span className={styles.importText}>{lang('Or import from...')}</span>
-          <div className={styles.importButtons}>
+          <span className={styles.importText}>{lang('or import from')}</span>
+          <div className={buildClassName(
+            styles.importButtons,
+            !isOtherVersionsExist && styles.importButtonsWithMargin,
+          )}
+          >
             <Button
               className={buildClassName(styles.button, !IS_LEDGER_SUPPORTED && styles.button_single)}
               onClick={handleImportAccountClick}
@@ -184,6 +200,24 @@ function AddAccountModal({
               </Button>
             )}
           </div>
+          {isOtherVersionsExist && (
+            <div className={styles.walletVersionBlock}>
+              <span>
+                {lang('$wallet_switch_version_1', {
+                  action: (
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={handleOpenSettingWalletVersion}
+                      className={styles.walletVersionText}
+                    >
+                      {lang('$wallet_switch_version_2')}
+                    </div>
+                  ),
+                })}
+              </span>
+            </div>
+          )}
         </div>
       </>
     );
@@ -257,6 +291,9 @@ function AddAccountModal({
 export default memo(withGlobal((global): StateProps => {
   const accounts = selectNetworkAccounts(global);
   const firstNonHardwareAccount = selectFirstNonHardwareAccount(global);
+  const { byId: versionById } = global.walletVersions ?? {};
+  const versions = versionById?.[global.currentAccountId!];
+  const isOtherVersionsExist = !!versions?.length;
 
   const {
     hardwareWallets,
@@ -276,5 +313,6 @@ export default memo(withGlobal((global): StateProps => {
     hardwareWallets,
     isLedgerConnected,
     isTonAppConnected,
+    isOtherVersionsExist,
   };
 })(AddAccountModal));

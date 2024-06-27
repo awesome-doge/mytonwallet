@@ -47,6 +47,12 @@ interface StateProps {
 const ACCOUNT_ADDRESS_SHIFT = 4;
 const ACCOUNT_ADDRESS_SHIFT_END = 4;
 
+const LEDGER_ALLOWED_DAPPS = new Set([
+  'https://multisig.ton.org',
+  'https://ton.ninja',
+  'https://tontogether.com',
+]);
+
 function DappConnectModal({
   state,
   hasConnectRequest,
@@ -69,20 +75,17 @@ function DappConnectModal({
 
   const lang = useLang();
   const [selectedAccount, setSelectedAccount] = useState<string>(currentAccountId);
-  const [isModalOpen, openModal, closeModal] = useFlag(hasConnectRequest);
   const [isConfirmOpen, openConfirm, closeConfirm] = useFlag(false);
 
-  const { renderingKey, nextKey } = useModalTransitionKeys(state ?? 0, isModalOpen);
+  const isOpen = hasConnectRequest;
 
+  const { renderingKey, nextKey } = useModalTransitionKeys(state ?? 0, isOpen);
+
+  const iterableAccounts = useMemo(() => Object.entries(accounts || {}), [accounts]);
+  const isHardwareAccountSelected = accounts?.[selectedAccount]?.isHardware;
   const isLoading = dapp === undefined;
 
-  useEffect(() => {
-    if (hasConnectRequest) {
-      openModal();
-    } else {
-      closeModal();
-    }
-  }, [closeModal, hasConnectRequest, openModal]);
+  const isHardwareAllowed = dapp && LEDGER_ALLOWED_DAPPS.has(dapp.url);
 
   useEffect(() => {
     if (!currentAccountId) return;
@@ -103,11 +106,14 @@ function DappConnectModal({
         accountId: selectedAccount,
       });
 
-      closeModal();
+      cancelDappConnectRequestConfirm();
     } else if (accounts![currentAccountId].isHardware && requiredProof) {
       setDappConnectRequestState({ state: DappConnectState.ConnectHardware });
     } else if (requiredPermissions?.isPasswordRequired) {
-      setDappConnectRequestState({ state: DappConnectState.Password });
+      // The confirmation window must be closed before the password screen is displayed
+      requestAnimationFrame(() => {
+        setDappConnectRequestState({ state: DappConnectState.Password });
+      });
     }
   });
 
@@ -128,17 +134,14 @@ function DappConnectModal({
     });
   });
 
-  const iterableAccounts = useMemo(() => {
-    return Object.entries(accounts || {});
-  }, [accounts]);
-
-  function renderAccount(accountId: string, address: string, title?: string) {
+  function renderAccount(accountId: string, address: string, title?: string, isHardware?: boolean) {
     const isActive = accountId === selectedAccount;
-    const onClick = isActive || isLoading ? undefined : () => setSelectedAccount(accountId);
+    const onClick = isActive || isLoading || isHardware ? undefined : () => setSelectedAccount(accountId);
     const fullClassName = buildClassName(
       styles.account,
       isActive && styles.account_current,
       isLoading && styles.account_disabled,
+      isHardware && !isHardwareAllowed && styles.account_inactive,
     );
 
     return (
@@ -146,6 +149,7 @@ function DappConnectModal({
         key={accountId}
         className={fullClassName}
         aria-label={lang('Switch Account')}
+        title={isHardware && !isHardwareAllowed ? lang('Connecting dapps is not yet supported by Ledger.') : undefined}
         onClick={onClick}
       >
         {title && <span className={styles.accountName}>{title}</span>}
@@ -170,7 +174,7 @@ function DappConnectModal({
         <p className={styles.label}>{lang('Select wallets to use on this dapp')}</p>
         <div className={fullClassName}>
           {iterableAccounts.map(
-            ([accountId, { title, address }]) => renderAccount(accountId, address, title),
+            ([accountId, { title, address, isHardware }]) => renderAccount(accountId, address, title, isHardware),
           )}
         </div>
       </>
@@ -180,7 +184,7 @@ function DappConnectModal({
   function renderDappInfo() {
     return (
       <>
-        <ModalHeader title={lang('Connect Dapp')} onClose={closeModal} />
+        <ModalHeader title={lang('Connect Dapp')} onClose={cancelDappConnectRequestConfirm} />
 
         <div className={modalStyles.transitionContent}>
           <DappInfo
@@ -191,8 +195,20 @@ function DappConnectModal({
           />
           {shouldRenderAccounts && renderAccounts()}
 
+          {isHardwareAccountSelected && !isHardwareAllowed && (
+            <div className={styles.warningForSingeHardwareAccount}>
+              {lang('Connecting dapps is not yet supported by Ledger.')}
+            </div>
+          )}
+
           <div className={styles.footer}>
-            <Button onClick={openConfirm} isPrimary>{lang('Connect')}</Button>
+            <Button
+              isPrimary
+              isDisabled={isHardwareAccountSelected && !isHardwareAllowed}
+              onClick={openConfirm}
+            >
+              {lang('Connect')}
+            </Button>
           </div>
         </div>
       </>
@@ -202,9 +218,9 @@ function DappConnectModal({
   function renderWaitForConnection() {
     return (
       <>
-        <ModalHeader title={lang('Connect Dapp')} onClose={closeModal} />
+        <ModalHeader title={lang('Connect Dapp')} onClose={cancelDappConnectRequestConfirm} />
         <div className={modalStyles.transitionContent}>
-          <div className={styles.dappInfoSkeleton}>
+          <div className={buildClassName(styles.dappInfoSkeleton, styles.dapp_first)}>
             <div className={styles.dappInfoIconSkeleton} />
             <div className={styles.dappInfoTextSkeleton}>
               <div className={styles.nameSkeleton} />
@@ -221,7 +237,7 @@ function DappConnectModal({
 
   function renderDappInfoWithSkeleton() {
     return (
-      <Transition name="fade" activeKey={isLoading ? 0 : 1} slideClassName={styles.skeletonTransitionWrapper}>
+      <Transition name="semiFade" activeKey={isLoading ? 0 : 1} slideClassName={styles.skeletonTransitionWrapper}>
         {isLoading ? renderWaitForConnection() : renderDappInfo()}
       </Transition>
     );
@@ -238,8 +254,8 @@ function DappConnectModal({
             isActive={isActive}
             error={error}
             onSubmit={handlePasswordSubmit}
-            onClose={closeModal}
             onCancel={handlePasswordCancel}
+            onClose={cancelDappConnectRequestConfirm}
           />
         );
       case DappConnectState.ConnectHardware:
@@ -269,7 +285,7 @@ function DappConnectModal({
   return (
     <>
       <Modal
-        isOpen={isModalOpen}
+        isOpen={isOpen}
         dialogClassName={styles.modalDialog}
         nativeBottomSheetKey="dapp-connect"
         forceFullNative={renderingKey === DappConnectState.Password}

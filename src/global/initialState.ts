@@ -18,7 +18,7 @@ import {
 } from '../config';
 import { IS_IOS_APP, USER_AGENT_LANG_CODE } from '../util/windowEnvironment';
 
-export const STATE_VERSION = 12;
+export const STATE_VERSION = 23;
 
 export const INITIAL_STATE: GlobalState = {
   appState: AppState.Auth,
@@ -60,6 +60,10 @@ export const INITIAL_STATE: GlobalState = {
     bySlug: INIT_SWAP_ASSETS,
   },
 
+  tokenPriceHistory: {
+    bySlug: {},
+  },
+
   settings: {
     state: SettingsState.Initial,
     theme: THEME_DEFAULT,
@@ -69,8 +73,7 @@ export const INITIAL_STATE: GlobalState = {
     langCode: USER_AGENT_LANG_CODE,
     dapps: [],
     byAccountId: {},
-    areTokensWithNoPriceHidden: true,
-    areTokensWithNoBalanceHidden: true,
+    areTokensWithNoCostHidden: true,
   },
 
   byAccountId: {},
@@ -82,5 +85,8 @@ export const INITIAL_STATE: GlobalState = {
   restrictions: {
     isLimitedRegion: false,
     isSwapDisabled: IS_IOS_APP,
+    isOnRampDisabled: IS_IOS_APP,
   },
+
+  mediaViewer: {},
 };

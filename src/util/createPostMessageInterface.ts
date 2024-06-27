@@ -4,6 +4,7 @@ import type {
 } from './PostMessageConnector';
 
 import { DETACHED_TAB_URL } from './ledger/tab';
+import { bigintReviver } from './bigint';
 import { logDebugError } from './logs';
 
 declare const self: WorkerGlobalScope;
@@ -15,20 +16,27 @@ type ApiConfig =
   | Record<string, Function>;
 type SendToOrigin = (data: WorkerMessageData, transferables?: Transferable[]) => void;
 
-export function createWorkerInterface(api: ApiConfig, channel?: string) {
+export function createPostMessageInterface(
+  api: ApiConfig,
+  channel?: string,
+  target: DedicatedWorkerGlobalScope | Worker = self as DedicatedWorkerGlobalScope,
+  shouldIgnoreErrors?: boolean,
+) {
   function sendToOrigin(data: WorkerMessageData, transferables?: Transferable[]) {
     data.channel = channel;
 
     if (transferables) {
-      postMessage(data, transferables);
+      target.postMessage(data, transferables);
     } else {
-      postMessage(data);
+      target.postMessage(data);
     }
   }
 
-  handleErrors(sendToOrigin);
+  if (!shouldIgnoreErrors) {
+    handleErrors(sendToOrigin);
+  }
 
-  onmessage = (message: OriginMessageEvent) => {
+  target.onmessage = (message: OriginMessageEvent) => {
     if (message.data?.channel === channel) {
       onMessage(api, message.data, sendToOrigin);
     }
@@ -67,12 +75,16 @@ export function createExtensionInterface(
 
     function sendToOrigin(data: WorkerMessageData) {
       data.channel = channel;
-      port.postMessage(data);
+      const json = JSON.stringify(data);
+      port.postMessage(json);
     }
 
     handleErrors(sendToOrigin);
 
-    port.onMessage.addListener((data: OriginMessageData) => {
+    port.onMessage.addListener((data: OriginMessageData | string) => {
+      if (typeof data === 'string') {
+        data = JSON.parse(data, bigintReviver) as OriginMessageData;
+      }
       if (data.channel === channel) {
         onMessage(api, data, sendToOrigin, dAppUpdater, origin);
       }

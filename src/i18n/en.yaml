@@ -36,13 +36,16 @@ $mnemonic_list_description: |
   Write down these words
   in the **correct order** and store them
   in a **secret place**.
+$mnemonic_warning: |
+  **Do not** send or show it to anyone,
+  **do not** enter it anywhere.
 Let's Check: Let's Check
 Let's Check!: Let's Check!
 Safety Rules: Safety Rules
 $safety_rules_one: |
   On the next screen you will see the **secret words**. Write them down in the correct order and **store in a secure place**.
 $safety_rules_two: They allow to **open your wallet** if you lose your password or access to this device.
-$safety_rules_three: If anybody else sees these words your funds **may be stolen**. Look around!
+$safety_rules_three: If anybody else sees these words your funds **may be stolen**. **Do not send it to anyone**, not even developers or technical support.
 Understood: Understood
 Congratulations!: Congratulations!
 Continue: Continue
@@ -61,6 +64,7 @@ About: About
 Exit: Exit
 Remove Wallet: Remove Wallet
 Something went wrong.: Something went wrong.
+Something went wrong: Something went wrong
 Logo: Logo
 $about_description1: Securely store crypto, explore decentralized apps, and make blockchain payments at the **speed of light**.
 $about_description2: The wallet is **non-custodial and safe**. The developers **do not** have access to your funds, browser history or any other information.
@@ -82,10 +86,6 @@ Currency History: Currency History
 $add_account_description1: |
   **MyTonWallet** allows you to seamlessly
   switch between **multiple accounts**.
-$add_account_description2: |
-  Try it by **creating** a new wallet,
-  or **importing** any of your existing ones
-  using 24 secret words.
 Enter Password: Enter Password
 Send: Send
 Add Wallet: Add Wallet
@@ -100,7 +100,6 @@ Log Out: Remove Wallet
 $logout_without_backup_warning: You have not backed up this wallet. If you remove it now, you will lose access to your tokens and NFTs.
 $logout_accounts_without_backup_warning: You have not backed up %links%. If you proceed, you will lose access to your tokens and NFTs.
 $logout_warning: This will remove the current wallet from the app. Make sure you have your **%1$d secret words** backed up.
-Receive TON: Receive TON
 Your address was copied!: Your address was copied!
 Show QR Code: Show QR Code
 Create Deposit Link: Create Deposit Link
@@ -110,6 +109,7 @@ $receive_invoice_description: |
   the payment to save the sender some time.
 Amount: Amount
 Comment: Comment
+Comment or Memo: Comment or Memo
 Share this URL to receive TON: Share this URL to receive TON
 Invoice link was copied!: Invoice link was copied!
 Theme: Theme
@@ -124,26 +124,22 @@ Network: Network
 Developer Options: Developer Options
 Confirmation: Confirmation
 Data to sign: Data to sign
-$signature_warning: |
-  Signing custom data is very dangerous.
-  Use only if you know what you are doing.
+$signature_warning: Signing custom data is very dangerous. Use it only if you trust the source of it.
 Sign: Sign
 Done!: Done!
 Signing was confirmed!: Signing was confirmed!
 Transaction Info: Transaction Info
 Transaction in progress: Transaction in progress
 Comment was copied!: Comment was copied!
-View Transaction on TON Explorer: View Transaction on TON Explorer
+View Transaction on %ton_explorer_name%: View Transaction on %ton_explorer_name%
 Sender: Sender
 Recipient: Recipient
 Address was copied!: Address was copied!
-Send Back: Send Back
 Repeat: Repeat
 Receive: Receive
 Switch Account: Switch Account
 Copy wallet address: Copy wallet address
-View address on TON Explorer: View address on TON Explorer
-Open on CoinMarketCap: Open on CoinMarketCap
+View address on %ton_explorer_name%: View address on %ton_explorer_name%
 You have just created a new wallet: You have just created a new wallet
 You can now transfer your tokens from another wallet or exchange.: You can now transfer your tokens from another wallet or exchange.
 Assets: Assets
@@ -153,6 +149,7 @@ No NFTs yet: No NFTs yet
 $nft_explore_offer: |
   Explore a marketplace to discover
   existing NFT collections.
+$nft_hardware_unsupported: Unfortunately, transferring NFT is not yet supported by Ledger wallet.
 Open Getgems: Open Getgems
 Transaction is not completed: Transaction is not completed
 Received: Received
@@ -189,13 +186,13 @@ Save: Save
 Copy: Copy
 Remove From Saved Addresses: Remove From Saved Addresses
 Add To Saved Addresses: Add To Saved Addresses
-View Address on TON Explorer: View Address on TON Explorer
+View Address on %ton_explorer_name%: View Address on %ton_explorer_name%
 No suggestions, you're on your own!: No suggestions, you're on your own!
 Play Sounds: Play Sounds
 Focus on asset value rather than current balance: Focus on asset value rather than current balance
 $logout_confirm: Remove **all** wallets
 $logout_warning2: Wallets are located in the decentralized TON Blockchain. If you want the wallet to be deleted simply transfer all the TON from it and leave it empty.
-$tiny_transfers_help: Turn this off to display transactions of less than %1$d %2$s. Please be aware that such transactions are often used for spam and scam purposes.
+$tiny_transfers_help: Turn this off to display transactions of less than $%value%. Please be aware that such transactions are often used for spam and scam purposes.
 Today: Today
 Yesterday: Yesterday
 Now: Now
@@ -212,7 +209,7 @@ Stake TON: Stake TON
 Earn from your tokens while holding them: Earn from your tokens while holding them
 $est_apy_val: Est. APY %1$d%
 Why this is safe: Why this is safe
-Why staking is safe?: Why staking is safe?
+Why is staking safe?: Why is staking safe?
 $safe_staking_description1: Staking is **fully decentralized** and operated by the **official TON Liquid Staking** smart contracts.
 $safe_staking_description2: The deposited stake will be used for the TON network validation as part of its **proof-of-stake** essence.
 $safe_staking_description3: You can withdraw your stake at **any time** and it will be deposited back to your account within **two days**.
@@ -235,20 +232,21 @@ $unstake_information_with_time: |
 Amount to unstake: Amount to unstake
 Confirm Unstaking: Confirm Unstaking
 Request for unstaking is sent!: Request for unstaking is sent!
-$unstaking_when_receive: You will receive your unstaked deposit in %time%
+$unstaking_when_receive: You will receive your unstaked deposit in %time%.
 $unstake_insufficient_balance: You need to have %balance% on your main balance to proceed with unstaking.
-at APY %1$s%: at APY %1$s%
+at %apy_value%: at %apy_value%
 Staked: Staked
 Unstake Requested: Unstake Requested
 Unstaked: Unstaked
 The network fee has slightly changed, try sending again.: The network fee has slightly changed, try sending again.
-Transfer was unsuccessful. Try again later: Transfer was unsuccessful. Try again later
-Unstaking was unsuccessful. Try again later: Unstaking was unsuccessful. Try again later
-Staking was unsuccessful. Try again later: Staking was unsuccessful. Try again later
+Transfer was unsuccessful. Try again later.: Transfer was unsuccessful. Try again later.
+Unstaking was unsuccessful. Try again later.: Unstaking was unsuccessful. Try again later.
+Staking was unsuccessful. Try again later.: Staking was unsuccessful. Try again later.
 Invalid amount: Invalid amount
 Invalid address: Invalid address
 Domain is not connected to a wallet: Domain is not connected to a wallet
 Unexpected error: Unexpected error
+Unexpected Error: Unexpected Error
 Earn: Earn
 Earning: Earning
 InvalidAmount: Invalid amount
@@ -276,7 +274,6 @@ Scam: Scam
 Scam comment is hidden.: Scam comment is hidden.
 Display: Display
 $dapp_transfer_tokens_payload: Sending %amount% from your account to %address%
-$dapp_transfer_nft_payload: Sending NFT "%nft%" from your account to %address%
 Connected Dapps: Connected Dapps
 Disconnect All Dapps: Disconnect All Dapps
 Disconnect: Disconnect
@@ -287,7 +284,6 @@ Are you sure you want to disconnect all websites?: Are you sure you want to disc
 $dapps-description: You can log in on dapps that support MyTonWallet. They can view wallet address, balance, and request operations.
 Logged in with MyTonWallet: Logged in with MyTonWallet
 No active connections: No active connections
-Unstaked successfully: Unstaked successfully
 Other: Other
 Assets & Activity: Assets & Activity
 Tokens Settings: Tokens Settings
@@ -295,11 +291,8 @@ Your Tokens: Your Tokens
 Add Token: Add Token
 Delete Token: Delete Token
 Are you sure you want to delete?: Are you sure you want to delete %token%?
-Hide Tokens With No Balance: Hide Tokens With No Balance
-Hide Tokens With No Price: Hide Tokens With No Price
-Sort By Value: Sort By Value
-Update: Update
-Restart: Restart
+Hide Tokens With No Cost: Hide Tokens With No Cost
+Sort By Cost: Sort By Cost
 Update MyTonWallet: Update MyTonWallet
 Connect Ledger: Connect Ledger
 Connecting to your Ledger...: Connecting to your Ledger...
@@ -313,7 +306,6 @@ Driver: Driver
 Connect your Ledger to PC: Connect your Ledger to PC
 Unlock it and open the TON App: Unlock it and open the TON App
 Maybe you need to check the password or change the driver.: Maybe you need to check the password or change the driver.
-Or import from...: Or import from...
 Confirm via Ledger: Confirm via Ledger
 Please confirm transaction on your Ledger: Please confirm transaction on your Ledger
 Declined: Declined
@@ -337,7 +329,8 @@ Message is encrypted.: Message is encrypted.
 $dapp_ledger_warning1: You are about to send a multi-way transaction using your **Ledger** wallet. You will need to sign each underlying transaction **one by one manually**.
 $dapp_ledger_warning2: Please take your time and do not interrupt the process.
 Agree: Agree
-The hardware wallet does not support this data format: The hardware wallet does not support this data format
+Unfortunately, this operation is not yet supported by Ledger wallet.: Unfortunately, this operation is not yet supported by Ledger wallet.
+SwapTitle: Swap
 Swap: Swap
 You sell: You sell
 You buy: You buy
@@ -392,7 +385,6 @@ Swap Placed: Swap Placed
 Swapping: Swapping
 Swapped: Swapped
 Swap Failed: Swap Failed
-Exchange rate: Exchange rate
 Swap Again: Swap Again
 Terms of Use: Terms of Use
 Privacy Policy: Privacy Policy
@@ -402,42 +394,39 @@ Create Backup: Create Backup
 Sending: Sending
 Failed: Failed
 Refunded: Refunded
-On hold: On hold
+On Hold: On Hold
 Expired: Expired
-In progress: In progress
+In Progress: In Progress
 Waiting for Payment: Waiting for Payment
-Waiting for payment: Waiting for payment
 Blockchain: Blockchain
-Receiving address in blockchain: Receiving address in %blockchain% blockchain
-Please provide an address of your wallet in another blockchain to receive bought tokens.: Please provide an address of your wallet in another blockchain to receive bought tokens.
-The time for sending coins is over: The time for sending coins is over
-Please wait a few moments...: Please wait a few moments...
+Your address on another blockchain: Your address on another blockchain
+Please provide an address of your wallet in %blockchain% blockchain to receive bought tokens.: Please provide an address of your wallet in %blockchain% blockchain to receive bought tokens.
+The time for sending coins is over.: The time for sending coins is over.
 You have not sent the coins to the specified address.: You have not sent the coins to the specified address.
-$swap_changelly_to_ton_description1: "You must send %value% to this address in %blockchain% blockchain within %time%"
-Please contact support and provide a transaction ID.: Please contact support and provide a transaction ID.
+$swap_changelly_to_ton_description1: "Send %value% to this address in %blockchain% blockchain within %time%"
 Exchange failed and coins were refunded to your wallet.: Exchange failed and coins were refunded to your wallet.
-Please contact security team to pass the KYC procedure.: Please contact security team to pass the KYC procedure.
+$swap_changelly_kyc_security: "Please contact **%email%** and provide **Transaction ID** to pass the KYC procedure:"
 Swap Expired: Swap Expired
 Swap On Hold: Swap On Hold
 Swap Refunded: Swap Refunded
-Changelly Payment Address: Changelly Payment Address
+Address for %blockchain% transfer: Address for %blockchain% transfer
 Cross-chain exchange provided by Changelly: Cross-chain exchange provided by Changelly
 $swap_changelly_agreement_message: By continuing, you agree to the %terms% and %policy% and understand that the transaction may trigger verification according to %kyc%.
 $swap_changelly_terms_of_use: terms of use
 $swap_changelly_privacy_policy: privacy policy
 Password must contain %length% digits.: Password must contain %length% digits.
 Deposit Link: Deposit Link
-$swap_changelly_from_ton_description: "Tokens will be sent to your address in %blockchain% blockchain in a few moments:"
+$swap_changelly_from_ton_description: "Tokens will be sent to your address in %blockchain% blockchain soon:"
+Please note that it may take up to a few hours for tokens to appear in your wallet.: Please note that it may take up to a few hours for tokens to appear in your wallet.
 Minimum amount: Minimum %value%
 Maximum amount: Maximum %value%
 Display Tray Icon: Display Tray Icon
 Enable Auto-Updates: Enable Auto-Updates
 Biometric Authentication: Biometric Authentication
-Turn off biometrics?: Turn off biometrics?
 If you turn off biometric protection, you will need to create a password.: If you turn off biometric protection, you will need to create a password.
 Enter your current password: Enter your current password
 Turn On Biometrics: Turn On Biometrics
-Please confirm transaction using biometrics: Please confirm transaction using biometrics
+Please confirm transaction using biometrics.: Please confirm transaction using biometrics.
 Enabling biometric confirmation will reset the password.: Enabling biometric confirmation will reset the password.
 Biometric Registration: Biometric Registration
 Step 1 of 2. Registration: Step 1 of 2. Registration
@@ -456,10 +445,10 @@ Use Password: Use Password
 Biometrics Disabled: Biometrics Disabled
 Biometrics Enabled: Biometrics Enabled
 A request is already pending: A request is already pending
-Please confirm operation using biometrics: Please confirm operation using biometrics
+Please confirm operation using biometrics.: Please confirm operation using biometrics.
 Scan QR Code: Scan QR Code
 Permission denied. Please grant camera permission to use the QR code scanner.: Permission denied. Please grant camera permission to use the QR code scanner.
-Unsupported barcode format: Unsupported barcode format
+Unsupported QR code format: Unsupported QR code format
 An error on the server side. Please try again.: An error on the server side. Please try again.
 Unrecognized QR Code: Unrecognized QR Code
 $fee_value_almost_equal: Fee ≈ %fee%
@@ -475,7 +464,6 @@ $unstake_information_instantly: You will get your deposit instantly.
 Select Token: Select Token
 MY: MY
 POPULAR: POPULAR
-A-Z: A-Z
 Not Found: Not Found
 Wallet is ready!: Wallet is ready!
 Wallet is imported!: Wallet is imported!
@@ -493,9 +481,9 @@ Not Now: Not Now
 Biometric Authentification: Biometric Authentification
 Touch ID: Touch ID
 Face ID: Face ID
-Turn Off Touch ID?: Turn Off Touch ID?
-Turn Off Face ID?: Turn Off Face ID?
-Turn Off Biometrics?: Turn Off Biometrics?
+Turn Off Touch ID: Turn Off Touch ID
+Turn Off Face ID: Turn Off Face ID
+Turn Off Biometrics: Turn Off Biometrics
 Enter code: Enter code
 Enter code or use Face ID: Enter code or use Face ID
 Enter code or use Touch ID: Enter code or use Touch ID
@@ -517,3 +505,119 @@ Are you sure you want to disable biometrics?: Are you sure you want to disable b
 Yes: Yes
 Declined. Please try to confirm transaction using biometrics again.: Declined. Please try to confirm transaction using biometrics again.
 No Activity: No Activity
+Add / Buy: Add / Buy
+Buy with Card: Buy with Card
+Buy with Crypto: Buy with Crypto
+Receive with QR or Invoice: Receive with QR or Invoice
+Cannot load widget: Cannot load widget
+Explore: Explore
+No partners yet: No partners yet
+Clear: Clear
+Get TON: Get TON
+Declined. Please try to confirm operation using biometrics again.: Declined. Please try to confirm operation using biometrics again.
+$unstake_up_to_information: Instantly – up to %value%
+$all_balance: "All: %balance%"
+$unstaking_not_enough_balance: You need to have %value% on your main balance to proceed with unstaking.
+$ledger_verify_address_on_device: Please, verify the address on your Ledger.
+Wallet Versions: Wallet Versions
+$read_more_about_wallet_version: Read more about types of wallet contracts on %ton_link%.
+$current_wallet_version: Your current wallet version is %version%.
+You have tokens on other versions of your wallet. You can import them from here.: You have tokens on other versions of your wallet. You can import them from here.
+$wallet_switch_version_1: You can also %action%.
+$wallet_switch_version_2: switch to another wallet version
+or import from: or import from
+$insufficient_fee: "Insufficient fee: %fee%"
+Required: Required
+Transaction to this smart contract is not yet supported by Ledger.: Transaction to this smart contract is not yet supported by Ledger.
+This type of transaction is not yet supported by Ledger.: This type of transaction is not yet supported by Ledger.
+The current version of Ledger only supports English-language comments without special characters.: The current version of Ledger only supports English-language comments without special characters.
+Comment is too long.: Comment is too long.
+Transferring NFT is not yet supported by Ledger.: Transferring NFT is not yet supported by Ledger.
+Encrypted comments are not yet supported by Ledger.: Encrypted comments are not yet supported by Ledger.
+Memo: Memo
+Memo was copied!: Memo was copied!
+$hide_tokens_no_cost_help: |
+  Turn this off to display tokens on your account with value less than $%value%. Please be aware that such tokens are often used for spam and scam purposed.
+  You can also selectively enable and disable particular tokens using the list below on this screen.
+No internet connection. Please check your connection and try again.: No internet connection. Please check your connection and try again.
+To use this feature, first enable Face ID in your phone settings.: To use this feature, first enable Face ID in your phone settings.
+To use this feature, first enable biometrics in your phone settings.: To use this feature, first enable biometrics in your phone settings.
+Open Settings: Open Settings
+You are about to transfer an important service token, which is needed to withdraw your deposit from staking.: You are about to transfer an important service token, which is needed to withdraw your deposit from staking.
+No Price: No Price
+Search or enter address...: Search or enter address...
+Connecting dapps is not yet supported by Ledger.: Connecting dapps is not yet supported by Ledger.
+Time synchronization issue. Please ensure your device's time settings are correct.: Time synchronization issue. Please ensure your device's time settings are correct.
+Data was copied!: Data was copied!
+Open NFT Collection: Open NFT Collection
+Previous: Previous
+Next: Next
+Insufficient TON for fee.: Insufficient TON for fee.
+Send NFT: Send NFT
+NFT has been sent!: NFT has been sent!
+Cannot be sent: Cannot be sent
+NFT is for sale: NFT is for sale
+More actions: More actions
+Open on %ton_explorer_name%: Open on %ton_explorer_name%
+Swap is not supported in Testnet.: Swap is not supported in Testnet.
+Swap is not yet supported by Ledger.: Swap is not yet supported by Ledger.
+Buying with card is not supported in Testnet.: Buying with card is not supported in Testnet.
+Staking is not supported in Testnet.: Staking is not supported in Testnet.
+Get Support: Get Support
+$transfer_inactive_contract_error: |
+  You entered an address in the "EQ..." format, but the address is not active, so the transaction will not be completed.
+  If you definitely want to send to this address, then enter the address in the "UQ..." format.
+Successfully: Successfully
+Unstake More: Unstake More
+WrongAddress: The dapp requested a transaction from another wallet.
+Are you sure you want to burn this NFT? It will be lost forever.: |
+  Are you sure you want to burn this NFT?
+  It will be lost forever.
+$multi_burn_nft_warning: "You are going to burn %amount% NFTs."
+$multi_send_nft_warning: "The process may take ~%duration% minute(s). Please do not close the app and do not switch accounts until it is finished."
+Burn NFT: Burn NFT
+Burn: Burn
+Private Key: Private Key
+"%amount% NFTs": "%amount% NFTs"
+1 NFT: 1 NFT
+1 NFT Selected: 1 NFT Selected
+"%amount% NFTs Selected": "%amount% NFTs Selected"
+For sale. Cannot be sent and burned: For sale. Cannot be sent and burned
+Select: Select
+Send All: Send All
+Burn All: Burn All
+Select All: Select All
+Collection: Collection
+Transaction ID was copied!: Transaction ID was copied!
+$swap_changelly_support: "If there are any problems, please contact %livechat% or %email% and provide **Transaction ID**:"
+Changelly Live Chat: Changelly Live Chat
+Your %blockchain% Address: Your %blockchain% Address
+Vesting: Vesting
+Vesting Balance: Vesting Balance
+Ready to Unfreeze: Ready to Unfreeze
+You will receive your unfrozen coins in a few minutes.: You will receive your unfrozen coins in a few minutes.
+Vesting Schedule: Vesting Schedule
+Loyal User Airdrop: Loyal User Airdrop
+Unfrozen: Unfrozen
+Missed: Missed
+Frozen: Frozen
+until %date%: until %date%
+"%volume% in %amount% parts": "%volume% in %amount% parts"
+Unfreeze: Unfreeze
+Claim: Claim
+Confirm Unfreezing: Confirm Unfreezing
+Insufficient Balance for Fee.: Insufficient Balance for Fee.
+$fee_value_bold: "**Fee:** %fee%"
+MyTonWallet Features: MyTonWallet Features
+Install on Desktop: Install on Desktop
+Install on Mobile: Install on Mobile
+Install App: Install App
+WrongNetwork: The dapp requested a transaction from another network.
+Hide: Hide
+Hide NFT: Hide NFT
+Are you sure you want to hide this NFT? This action cannot be undone.: Are you sure you want to hide this NFT? This action cannot be undone.
+Reload Page: Reload Page
+Open in Safari: Open in Safari
+Open in Browser: Open in browser
+CopyURL: Copy URL
+Share: Share
